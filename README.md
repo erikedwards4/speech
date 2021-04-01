@@ -1,6 +1,6 @@
-# aud
+# speech
 
-aud: functions for audio processing  
+speech: functions for speech and voice processing  
 
 ================================================
 
