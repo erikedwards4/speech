@@ -9,7 +9,7 @@
 #It is not necessary to run this when making the C++ command-line tools.
 
 SHELL=/bin/bash
-CC=clang
+CC=clang++
 
 ifeq ($(CC),$(filter $(CC),clang gcc))
 	STD=-std=c11
@@ -28,10 +28,16 @@ CFLAGS=$(WFLAG) $(STD) -O3 -march=native -fPIC
 
 
 All: all
-all: Dirs F0 SAD VAD Clean
+all: Dirs Kaldi_compat F0 SAD VAD Clean
 
 Dirs:
 	mkdir -pm 777 obj
+
+
+#Kaldi_compat: my own re-implementation of Kaldi feats
+Kaldi_compat: kaldi_spectrogram kaldi_fbank
+kaldi_spectrogram: kaldi_spectrogram.c; $(CC) -c $@.c -o obj/$@.o $(CFLAGS)
+kaldi_fbank: kaldi_fbank.c; $(CC) -c $@.c -o obj/$@.o $(CFLAGS)
 
 
 #F0: pitch

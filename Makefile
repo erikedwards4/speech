@@ -25,24 +25,38 @@ CFLAGS=$(WFLAG) $(STD) -O2 -ffast-math -march=native $(INCLS)
 
 
 All: all
-all: Dirs F0 SAD VAD Clean
+all: Dirs Kaldi Kaldi_compat F0 SAD VAD Clean
 	rm -f 7 obj/*.o
 
 Dirs:
 	mkdir -pm 777 bin obj
 
 
-F0: f0_ccs
+#Use Kaldi C++ code directly (but usual commmand-line interface)
+Kaldi: kaldi.spectrogram
+kaldi.spectrogram: srci/kaldi.spectrogram.cpp c/kaldi.spectrogram.c
+	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2
+
+
+#My own re-implementation of Kaldi feats
+Kaldi_compat: kaldi_spectrogram kaldi_fbank
+kaldi_spectrogram: srci/kaldi_spectrogram.cpp c/kaldi_spectrogram.c
+	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+kaldi_fbank: srci/kaldi_fbank.cpp c/kaldi_fbank.c
+	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+
+
+F0: #f0_ccs
 f0_ccs: srci/f0_ccs.cpp c/f0_ccs.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2
 
 
-SAD: sad_thresh
+SAD: #sad_thresh
 sad_thresh: srci/sad_thresh.cpp c/sad_thresh.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2
 
 
-VAD: vad_ccs
+VAD: #vad_ccs
 vad_ccs: srci/vad_ccs.cpp c/vad_ccs.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2
 
