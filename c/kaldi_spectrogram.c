@@ -230,7 +230,10 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw**Yw + FLT_EPSILON; }
         Y -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
-        Yw -= nfft; Y += F;
+        Yw -= nfft;
+
+        //Log
+        for (size_t f=0u; f<F; ++f, ++Y) { *Y = log(*Y); }
     }
 
     //Subtract means from Y
@@ -388,7 +391,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         {
             rawe = 0.0;
             for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<rawe_floot) { rawe = rawe_floor; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
         //Dither
@@ -443,7 +446,10 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw**Yw + (double)FLT_EPSILON; }
         Y -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
-        Yw -= nfft; Y += F;
+        Yw -= nfft;
+
+        //Log
+        for (size_t f=0u; f<F; ++f, ++Y) { *Y = log(*Y); }
     }
 
     //Subtract means from Y

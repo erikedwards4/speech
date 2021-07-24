@@ -83,6 +83,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
     //Initialize raw_energy
+    const float rawe_floor = FLT_EPSILON;
     float rawe = 0.0f;
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
@@ -211,7 +212,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         {
             rawe = 0.0f;
             for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<FLT_EPSILON) { rawe = FLT_EPSILON; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
         //Dither
@@ -356,6 +357,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
     //Initialize raw_energy
+    const double rawe_floor = (double)FLT_EPSILON;
     double rawe = 0.0;
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
@@ -484,7 +486,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         {
             rawe = 0.0;
             for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<(double)FLT_EPSILON) { rawe = (double)FLT_EPSILON; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
         //Dither
