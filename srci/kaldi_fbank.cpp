@@ -7,7 +7,7 @@ const valarray<size_t> oktypes = {1u,2u};
 const size_t I = 1u, O = 1u;
 size_t W, L, stp, B;
 double d, p, fs, fl, shft, lof, hif;
-int snip_edges, dc0, amp, lg, mn0;
+int snipe, rawe, dc0, amp, lg, mn0;
 string wintype;
 
 //Description
@@ -23,24 +23,24 @@ descr += "and W is the number of frames (a.k.a. windows).\n";
 descr += "\n";
 descr += "Use -r (--fs) to give the sample rate [default=16000].\n";
 descr += "\n";
-descr += "Include -z (--zero-mean) to subtract the mean from X [default=false].\n";
+descr += "Include -z (--zero_mean) to subtract the mean from X [default=false].\n";
 descr += "This is applied before any other processing and is not usually recommended.\n";
 descr += "\n";
 descr += "Use -l (--frame_length) to give the frame length in ms [default=25].\n";
 descr += "\n";
 descr += "Use -s (--frame_shift) to give the frame shift in ms [default=10].\n";
 descr += "\n";
-descr += "Use -e (--snip-edges) to set snip-edges to true [default=false].\n";
+descr += "Use -e (--snip_edges) to set snip_edges to true [default=false].\n";
 descr += "This is a setting from HTK, Kaldi, Librosa, etc., which controls\n";
 descr += "the placement of the first/last frames w.r.t. the start/end of X1.\n";
 descr += "\n";
 descr += "The number of output frames (W) is set as in Kaldi:\n";
-descr += "If snip-edges=true:  W = 1u + (N-L)/stp   \n";
-descr += "If snip-edges=false: W = (N+stp/2u) / stp \n";
+descr += "If snip_edges=true:  W = 1u + (N-L)/stp   \n";
+descr += "If snip_edges=false: W = (N+stp/2u) / stp \n";
 descr += "\n";
-descr += "If snip-edges=true, the first frame starts at samp 0,\n";
+descr += "If snip_edges=true, the first frame starts at samp 0,\n";
 descr += "and the last frame fits entirely within the length of X.\n";
-descr += "If snip-edges=false, the first frame is centered at samp stp/2,\n";
+descr += "If snip_edges=false, the first frame is centered at samp stp/2,\n";
 descr += "and the last frame can overlap the end of X.\n";
 descr += "\n";
 descr += "The following framing convention is used here:\n";
@@ -50,7 +50,7 @@ descr += "but if Y is col-major, then it has size F x W. \n";
 descr += "\n";
 descr += "Use -d (--dweight) to give the dither weight.\n";
 descr += "\n";
-descr += "Include -c (--zero-dc) to subtract the mean from each frame [default=false].\n";
+descr += "Include -c (--zero_dc) to subtract the mean from each frame [default=false].\n";
 descr += "This is applied just after dither, before the preemph.\n";
 descr += "\n";
 descr += "Use -p (--preemph) to give the preemphasis.\n";
@@ -68,7 +68,7 @@ descr += "\n";
 descr += "Include -g (--log) to output log amplitude or power [default=false].\n";
 descr += "This takes the log of each element of Y + FLT_EPSILON before output.\n";
 descr += "\n";
-descr += "Include -z (--zero-mean) to subtract the means from Y [default=false].\n";
+descr += "Include -z (--zero_mean) to subtract the means from Y [default=false].\n";
 descr += "This is takes B means and subtracts just before output [not usually recommended].\n";
 descr += "\n";
 descr += "Examples:\n";
@@ -82,17 +82,18 @@ struct arg_file  *a_fi = arg_filen(nullptr,nullptr,"<file>",I-1,I,"input files (
 struct arg_dbl   *a_sr = arg_dbln("r","fs","<dbl>",0,1,"sample rate in Hz [default=16000.0]");
 struct arg_dbl   *a_fl = arg_dbln("l","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
 struct arg_dbl  *a_stp = arg_dbln("s","frame_shift","<dbl>",0,1,"step in ms between each frame [default=10]");
-struct arg_lit  *a_sne = arg_litn("e","snip-edges",0,1,"include to snip edges [default=false]");
-struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
+struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");\
+struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
 struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither coefficient (weight) [default=0.1]");
-struct arg_lit  *a_dc0 = arg_litn("c","zero-dc",0,1,"include to zero the mean of each frame [default=false]");
+struct arg_lit  *a_dc0 = arg_litn("c","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
 struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
+struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
 struct arg_lit  *a_amp = arg_litn("a","amp",0,1,"include to output amplitude (sqrt of power) [default=false]");
 struct arg_int    *a_b = arg_intn("b","B","<uint>",0,1,"number of mel bins [default=23]");
 struct arg_dbl  *a_lof = arg_dbln("q","lof","<dbl>",0,1,"low (left) freq in Hz [default=20.0]");
 struct arg_dbl  *a_hif = arg_dbln("r","hif","<dbl>",0,1,"hi (right) freq in Hz [default=Nyquist]");
 struct arg_lit  *a_log = arg_litn("g","log",0,1,"include to output log of amplitude or power [default=false]");
-struct arg_lit  *a_mn0 = arg_litn("z","zero-mean",0,1,"include to zero the means of each feat in Y [default=false]");
+struct arg_lit  *a_mn0 = arg_litn("z","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
 struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
 
 //Get options
@@ -118,7 +119,10 @@ shft = (a_stp->count>0) ? a_stp->dval[0] : 10.0;
 if (shft<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "frame shift must be positive" << endl; return 1; }
 
 //Get snip_edges
-snip_edges = (a_sne->count>0);
+snipe = (a_sne->count>0);
+
+//Get raw_energy
+rawe = (a_re->count>0);
 
 //Get wintype
 if (a_wt->count==0) { wintype = "povey"; }
@@ -163,7 +167,7 @@ if (i1.isempty()) { cerr << progstr+": " << __LINE__ << errstr << "input (X) fou
 //Set output header
 L = size_t(fs*fl/1000.0);
 stp = size_t(fs*shft/1000.0);
-W = (snip_edges) ? 1u+(i1.N()-L)/stp : (i1.N()+stp/2u)/stp;
+W = (snipe) ? 1u+(i1.N()-L)/stp : (i1.N()+stp/2u)/stp;
 o1.F = i1.F; o1.T = i1.T;
 o1.R = (i1.isrowmajor()) ? W : B;
 o1.C = (i1.isrowmajor()) ? B : W;
@@ -181,7 +185,7 @@ if (o1.T==1u)
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
     try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-    if (codee::kaldi_fbank_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snip_edges,wintype.c_str(),float(d),dc0,float(p),amp,B,float(lof),float(hif),lg,mn0))
+    if (codee::kaldi_fbank_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,rawe,float(d),dc0,float(p),wintype.c_str(),amp,B,float(lof),float(hif),lg,mn0))
     { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
     if (wo1)
     {

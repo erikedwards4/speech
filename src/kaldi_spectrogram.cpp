@@ -11,7 +11,7 @@
 #include <valarray>
 #include <unordered_map>
 #include <argtable2.h>
-#include "cmli.hpp"
+#include "../util/cmli.hpp"
 #include <cfloat>
 #include "kaldi_spectrogram.c"
 
@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     ioinfo i1, o1;
     size_t W, nfft, F, L, stp;
     double d, p, fs, fl, shft;
-    int snip_edges, dc0, mn0;
+    int snipe, rawe, dc0, mn0;
     string wintype;
 
 
@@ -59,17 +59,17 @@ int main(int argc, char *argv[])
     descr += "\n";
     descr += "Use -s (--frame_shift) to give the frame shift in ms [default=10].\n";
     descr += "\n";
-    descr += "Use -e (--snip-edges) to set snip-edges to true [default=false].\n";
+    descr += "Use -e (--snip_edges) to set snip_edges to true [default=false].\n";
     descr += "This is a setting from HTK, Kaldi, Librosa, etc., which controls\n";
     descr += "the placement of the first/last frames w.r.t. the start/end of X1.\n";
     descr += "\n";
     descr += "The number of output frames (W) is set as in Kaldi:\n";
-    descr += "If snip-edges=true:  W = 1u + (N-L)/stp   \n";
-    descr += "If snip-edges=false: W = (N+stp/2u) / stp \n";
+    descr += "If snip_edges=true:  W = 1u + (N-L)/stp   \n";
+    descr += "If snip_edges=false: W = (N+stp/2u) / stp \n";
     descr += "\n";
-    descr += "If snip-edges=true, the first frame starts at samp 0,\n";
+    descr += "If snip_edges=true, the first frame starts at samp 0,\n";
     descr += "and the last frame fits entirely within the length of X.\n";
-    descr += "If snip-edges=false, the first frame is centered at samp stp/2,\n";
+    descr += "If snip_edges=false, the first frame is centered at samp stp/2,\n";
     descr += "and the last frame can overlap the end of X.\n";
     descr += "\n";
     descr += "The following framing convention is used here:\n";
@@ -77,14 +77,18 @@ int main(int argc, char *argv[])
     descr += "So, if Y is row-major, then it has size W x F; \n";
     descr += "but if Y is col-major, then it has size F x W. \n";
     descr += "\n";
+    descr += "Include -g (--raw_energy) to use raw energy [default=false].\n";
+    descr += "This is computed before dithering or windowing,\n";
+    descr += "and is substituted in place of the FFT DC term.\n";
+    descr += "\n";
     descr += "Use -d (--dweight) to give the dither weight.\n";
     descr += "\n";
-    descr += "Include -c (--zero-dc) to subtract the mean from each frame [default=false].\n";
+    descr += "Include -c (--zero_dc) to subtract the mean from each frame [default=false].\n";
     descr += "This is applied just after dither, before the preemph.\n";
     descr += "\n";
     descr += "Use -p (--preemph) to give the preemphasis.\n";
     descr += "\n";
-    descr += "Include -z (--zero-mean) to subtract the means from Y [default=false].\n";
+    descr += "Include -z (--zero_mean) to subtract the means from Y [default=false].\n";
     descr += "This is takes F means and subtracts just before output [not usually recommended].\n";
     descr += "\n";
     descr += "Examples:\n";
@@ -100,16 +104,17 @@ int main(int argc, char *argv[])
     struct arg_dbl   *a_sr = arg_dbln("r","fs","<dbl>",0,1,"sample rate in Hz [default=16000.0]");
     struct arg_dbl   *a_fl = arg_dbln("l","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
     struct arg_dbl  *a_stp = arg_dbln("s","frame_shift","<dbl>",0,1,"step in ms between each frame [default=10]");
-    struct arg_lit  *a_sne = arg_litn("e","snip-edges",0,1,"include to snip edges [default=false]");
-    struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
+    struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");
+    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
     struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither coefficient (weight) [default=0.1]");
-    struct arg_lit  *a_dc0 = arg_litn("c","zero-dc",0,1,"include to zero the mean of each frame [default=false]");
+    struct arg_lit  *a_dc0 = arg_litn("c","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
     struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
-    struct arg_lit  *a_mn0 = arg_litn("z","zero-mean",0,1,"include to zero the means of each feat in Y [default=false]");
+    struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
+    struct arg_lit  *a_mn0 = arg_litn("z","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
     struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
     struct arg_lit *a_help = arg_litn("h","help",0,1,"display this help and exit");
     struct arg_end  *a_end = arg_end(5);
-    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_wt, a_d, a_dc0, a_p, a_mn0, a_fo, a_help, a_end};
+    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_re, a_d, a_dc0, a_p, a_wt, a_mn0, a_fo, a_help, a_end};
     if (arg_nullcheck(argtable)!=0) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating argtable" << endl; return 1; }
     nerrs = arg_parse(argc, argv, argtable);
     if (a_help->count>0)
@@ -170,7 +175,10 @@ int main(int argc, char *argv[])
     if (shft<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "frame shift must be positive" << endl; return 1; }
 
     //Get snip_edges
-    snip_edges = (a_sne->count>0);
+    snipe = (a_sne->count>0);
+
+    //Get raw_energy
+    rawe = (a_re->count>0);
 
     //Get wintype
     if (a_wt->count==0) { wintype = "povey"; }
@@ -199,7 +207,7 @@ int main(int argc, char *argv[])
     nfft = 1u;
     while (nfft<L) { nfft *= 2u; }
     F = nfft/2u + 1u;
-    W = (snip_edges) ? 1u+(i1.N()-L)/stp : (i1.N()+stp/2u)/stp;
+    W = (snipe) ? 1u+(i1.N()-L)/stp : (i1.N()+stp/2u)/stp;
     o1.F = i1.F; o1.T = i1.T;
     o1.R = (i1.isrowmajor()) ? W : F;
     o1.C = (i1.isrowmajor()) ? F : W;
@@ -231,7 +239,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_spectrogram_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snip_edges,wintype.c_str(),float(d),dc0,float(p),mn0))
+        if (codee::kaldi_spectrogram_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,rawe,float(d),dc0,float(p),wintype.c_str(),mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {
@@ -249,7 +257,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_spectrogram_d(Y,X,i1.N(),double(fs),double(fl),double(shft),snip_edges,wintype.c_str(),double(d),dc0,double(p),mn0))
+        if (codee::kaldi_spectrogram_d(Y,X,i1.N(),double(fs),double(fl),double(shft),snipe,rawe,double(d),dc0,double(p),wintype.c_str(),mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {

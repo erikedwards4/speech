@@ -10,7 +10,7 @@
 
 SHELL=/bin/bash
 ss=../util/bin/srci2src
-CC=clang++
+CC=g++-7
 
 ifeq ($(CC),clang++)
 	STD=-std=c++11
@@ -22,7 +22,8 @@ endif
 
 INCLS=-Ic -I../util
 CFLAGS=$(WFLAG) $(STD) -O2 -ffast-math -march=native $(INCLS)
-
+KINCLS=-I../util -I/opt/kaldi/src -I/opt/kaldi/src/bin -I/opt/kaldi/src/base -I/opt/kaldi/src/matrix -I/opt/kaldi/src/util -I/opt/kaldi/src/makefiles -I/opt/kaldi/src/feat -I/opt/kaldi/src/featbin -I/opt/kaldi/src/transform
+KFLAGS=-DKALDI_DOUBLEPRECISION=0
 
 All: all
 all: Dirs Kaldi Kaldi_compat F0 SAD VAD Clean
@@ -34,8 +35,8 @@ Dirs:
 
 #Use Kaldi C++ code directly (but usual commmand-line interface)
 Kaldi: kaldi.spectrogram
-kaldi.spectrogram: srci/kaldi.spectrogram.cpp c/kaldi.spectrogram.c
-	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2
+kaldi.spectrogram: src/kaldi.spectrogram.cpp
+	$(CC) -c src/$@.cpp -oobj/$@.o $(KINCLS); $(CC) obj/$@.o -obin/$@ -rdynamic -largtable2 -lopenblas -lm -lpthread -ldl
 
 
 #My own re-implementation of Kaldi feats

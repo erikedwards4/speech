@@ -17,10 +17,11 @@
 //frame_length: float   length of each frame (window) in msec (often 25 ms)
 //frame_shift:  float   step size between each frame center in msec (often 10 ms)
 //snip_edges:   bool    controls style of framing w.r.t. edges of X
-//win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
+//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
 //dither:       float   dithering weight (set to 0.0 for no dither)
 //dc0:          bool    to subtract mean from each frame after dither
 //preemph:      float   preemph coeff (set to 0.0 for no preemph)
+//win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
 //mn0:          bool    to subtract means of F feats in Y before output (not usually recommended)
 
 #include <stdio.h>
@@ -41,11 +42,11 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const char win_type[], const float dither, const int dc0, const float preemph, const int mn0);
-int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const char win_type[], const double dither, const int dc0, const double preemph, const int mn0);
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const int raw_energy, const float dither, const int dc0, const float preemph, const char win_type[], const int mn0);
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const int raw_energy, const double dither, const int dc0, const double preemph, const char win_type[], const int mn0);
 
 
-int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const char win_type[], const float dither, const int dc0, const float preemph, const int mn0)
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const int raw_energy, const float dither, const int dc0, const float preemph, const char win_type[], const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_spectrogram_s: N (nsamps in signal) must be positive\n"); return 1; }
     if (fs<FLT_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_s: fs must be positive\n"); return 1; }
@@ -67,20 +68,15 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
     const size_t W = (snip_edges) ? 1u+(N-L)/stp : (N+stp/2u)/stp;
     if (W==0u) { return 0; }
 
-    //Set nfft (FFT transform length), which is next pow2 of L
-    size_t nfft = 1u;
-    while (nfft<L) { nfft *= 2u; }
+    //Initialize framing
+    const size_t Lpre = L/2u;                   //nsamps before center samp
+    int ss = (int)(stp/2u) - (int)Lpre;         //start-samp of current frame
+    int n, prev_n = 0;                          //current/prev samps in X
+    const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
-    //Set F (num non-negative FFT freqs)
-    const size_t F = nfft/2u + 1u;
-    
-    //Initialize FFT (using lib fftw3)
-    float *Xw, *Yw;
-    Xw = (float *)fftwf_malloc(nfft*sizeof(float));
-    Yw = (float *)fftwf_malloc(nfft*sizeof(float));
-    fftwf_plan plan = fftwf_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
-    if (!plan) { fprintf(stderr,"error in kaldi_spectrogram_s: problem creating fftw plan"); return 1; }
-    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
+    //Initialize raw_energy
+    const float rawe_floor = FLT_EPSILON;
+    float rawe = 0.0f;
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
     const float M_2PI = (float)(2.0*M_PI);
@@ -129,11 +125,20 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         }
     }
 
-    //Initialize framing
-    const size_t Lpre = L/2u;                   //nsamps before center samp
-    int ss = (int)(stp/2u) - (int)Lpre;         //start-samp of current frame
-    int n, prev_n = 0;                          //current/prev samps in X
-    const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
+    //Set nfft (FFT transform length), which is next pow2 of L
+    size_t nfft = 1u;
+    while (nfft<L) { nfft *= 2u; }
+
+    //Set F (num non-negative FFT freqs)
+    const size_t F = nfft/2u + 1u;
+    
+    //Initialize FFT (using lib fftw3)
+    float *Xw, *Yw;
+    Xw = (float *)fftwf_malloc(nfft*sizeof(float));
+    Yw = (float *)fftwf_malloc(nfft*sizeof(float));
+    fftwf_plan plan = fftwf_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
+    if (!plan) { fprintf(stderr,"error in kaldi_spectrogram_s: problem creating fftw plan"); return 1; }
+    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
 
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
@@ -163,6 +168,14 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
                 X -= xd; prev_n = ss + (int)stp;
             }
             ss += stp;
+        }
+
+        //Raw energy
+        if (raw_energy)
+        {
+            rawe = 0.0f;
+            for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
         //Dither
@@ -212,7 +225,9 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         fftwf_execute(plan);
         
         //Power (from fftw half-complex format)
-        for (size_t f=0u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
+        *Y = (raw_energy) ? rawe : *Yw**Yw + FLT_EPSILON;
+        ++Y; ++Yw;
+        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw**Yw + FLT_EPSILON; }
         Y -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         Yw -= nfft; Y += F;
@@ -244,7 +259,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
 }
 
 
-int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const char win_type[], const double dither, const int dc0, const double preemph, const int mn0)
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const int raw_energy, const double dither, const int dc0, const double preemph, const char win_type[], const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_spectrogram_d: N (nsamps in signal) must be positive\n"); return 1; }
     if (fs<DBL_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_d: fs must be positive\n"); return 1; }
@@ -266,20 +281,15 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
     const size_t W = (snip_edges) ? 1u+(N-L)/stp : (N+stp/2u)/stp;
     if (W==0u) { return 0; }
 
-    //Set nfft (FFT transform length), which is next pow2 of L
-    size_t nfft = 1u;
-    while (nfft<L) { nfft *= 2u; }
+    //Initialize framing
+    const size_t Lpre = L/2u;                   //nsamps before center samp
+    int ss = (int)(stp/2u) - (int)Lpre;         //start-samp of current frame
+    int n, prev_n = 0;                          //current/prev samps in X
+    const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
-    //Set F (num non-negative FFT freqs)
-    const size_t F = nfft/2u + 1u;
-    
-    //Initialize FFT (using lib fftw3)
-    double *Xw, *Yw;
-    Xw = (double *)fftw_malloc(nfft*sizeof(double));
-    Yw = (double *)fftw_malloc(nfft*sizeof(double));
-    fftw_plan plan = fftw_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
-    if (!plan) { fprintf(stderr,"error in kaldi_spectrogram_d: problem creating fftw plan"); return 1; }
-    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
+    //Initialize raw_energy
+    const double rawe_floor = (double)FLT_EPSILON;
+    double rawe = 0.0;
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
     const double M_2PI = 2.0*M_PI;
@@ -328,11 +338,20 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         }
     }
 
-    //Initialize framing
-    const size_t Lpre = L/2u;                   //nsamps before center samp
-    int ss = (int)(stp/2u) - (int)Lpre;         //start-samp of current frame
-    int n, prev_n = 0;                          //current/prev samps in X
-    const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
+    //Set nfft (FFT transform length), which is next pow2 of L
+    size_t nfft = 1u;
+    while (nfft<L) { nfft *= 2u; }
+
+    //Set F (num non-negative FFT freqs)
+    const size_t F = nfft/2u + 1u;
+    
+    //Initialize FFT (using lib fftw3)
+    double *Xw, *Yw;
+    Xw = (double *)fftw_malloc(nfft*sizeof(double));
+    Yw = (double *)fftw_malloc(nfft*sizeof(double));
+    fftw_plan plan = fftw_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
+    if (!plan) { fprintf(stderr,"error in kaldi_spectrogram_d: problem creating fftw plan"); return 1; }
+    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
 
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
@@ -364,8 +383,16 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
             ss += stp;
         }
 
+        //Raw energy
+        if (raw_energy)
+        {
+            rawe = 0.0;
+            for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
+            if (rawe<rawe_floot) { rawe = rawe_floor; }
+        }
+
         //Dither
-        if (dither>DBL_EPSILON)
+        if (dither>(double)FLT_EPSILON)
         {
             Xw -= L;
             for (size_t l=0u; l<L; l+=2u)
@@ -396,7 +423,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         }
 
         //Preemph
-        if (L<2u || preemph<DBL_EPSILON) { Xw -= L; }
+        if (L<2u || preemph<(double)FLT_EPSILON) { Xw -= L; }
         else
         {
             --Xw;
@@ -411,7 +438,9 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         fftw_execute(plan);
         
         //Power (from fftw half-complex format)
-        for (size_t f=0u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
+        *Y = (raw_energy) ? rawe : *Yw**Yw + (double)FLT_EPSILON;
+        ++Y; ++Yw;
+        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw**Yw + (double)FLT_EPSILON; }
         Y -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         Yw -= nfft; Y += F;
