@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     descr += "If hif is <= 0.0 Hz, then it is interpreted as offset from Nyquist.\n";
     descr += "\n";
     descr += "Include -g (--log) to output log amplitude or power [default=false].\n";
-    descr += "This takes the log of each element of Y + FLT_EPSILON before output.\n";
+    descr += "This takes the log of each element of Y (with floor of FLT_EPS) before output.\n";
     descr += "\n";
     descr += "Include -z (--zero_mean) to subtract the means from Y [default=false].\n";
     descr += "This is takes B means and subtracts just before output [not usually recommended].\n";
