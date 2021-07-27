@@ -17,9 +17,9 @@
 //frame_length: float   length of each frame (window) in msec (often 25 ms)
 //frame_shift:  float   step size between each frame center in msec (often 10 ms)
 //snip_edges:   bool    controls style of framing w.r.t. edges of X
-//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
 //dither:       float   dithering weight (set to 0.0 for no dither)
 //dc0:          bool    to subtract mean from each frame after dither
+//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
 //preemph:      float   preemph coeff (set to 0.0 for no preemph)
 //win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
 //amp:          bool    use magnitude (amplitude) rather than power after FFT
@@ -47,11 +47,11 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const int raw_energy, const float dither, const int dc0, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0);
-int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const int raw_energy, const double dither, const int dc0, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0);
+int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0);
+int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0);
 
 
-int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const int raw_energy, const float dither, const int dc0, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0)
+int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_fbank_s: N (nsamps in signal) must be positive\n"); return 1; }
     if (fs<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: fs must be positive\n"); return 1; }
@@ -82,10 +82,6 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
     int n, prev_n = 0;                          //current/prev samps in X
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
-    //Initialize raw_energy
-    const float rawe_floor = FLT_EPSILON;
-    float rawe = 0.0f;
-
     //Initialize dither (this is a direct randn generator using method of PCG library)
     const float M_2PI = (float)(2.0*M_PI);
     float u1, u2, R;
@@ -99,6 +95,10 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_fbank_s: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
         state = (uint64_t)(ts.tv_nsec^ts.tv_sec) + inc;
     }
+
+    //Initialize raw_energy
+    const float rawe_floor = FLT_EPSILON;
+    float rawe = 0.0f;
 
     //Get win (window vec of length L)
     float *win;
@@ -151,14 +151,14 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
     const float finc = fs/(float)nfft;                          //freq increment in Hz for FFT freqs
-    const float lomel = 2595.0f * log10f((1.0f+lof)/700.0f);    //low-mel cutoff
-    const float himel = 2595.0f * log10f((1.0f+hif)/700.0f);    //high-mel cutoff
+    const float lomel = 1127.0f * logf(1.0f+lof/700.0f);        //low-mel cutoff
+    const float himel = 1127.0f * logf(1.0f+hif/700.0f);        //high-mel cutoff
     const float dmel = (himel-lomel) / (float)(B+1u);           //controls spacing on mel scale
     float *mels;                                                //map STFT freqs to mels
     float *F2B;                                                 //transform matrix for STFT power in F freqs to B mel bins
     if (!(mels=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
     if (!(F2B=(float *)malloc(BF*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
-    for (size_t f=0; f<F; ++f) { mels[f] = 2595.0f * log10f((1.0f+((float)f*finc))/700.0f); }
+    for (size_t f=0; f<F; ++f) { mels[f] = 1127.0f * logf(1.0f+(float)f*finc/700.0f); }
     float lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
     for (size_t b=0u; b<B; ++b)
     {
@@ -207,14 +207,6 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
             ss += stp;
         }
 
-        //Raw energy
-        if (raw_energy)
-        {
-            rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<rawe_floor) { rawe = rawe_floor; }
-        }
-
         //Dither
         if (dither>FLT_EPSILON)
         {
@@ -246,6 +238,14 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
             for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
         }
 
+        //Raw energy
+        if (raw_energy)
+        {
+            Xw -= L; rawe = 0.0f;
+            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+        }
+
         //Preemph
         if (L<2u || preemph<FLT_EPSILON) { Xw -= L; }
         else
@@ -262,11 +262,18 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         fftwf_execute(plan);
         
         //Power (from fftw half-complex format)
-        *Yf = (raw_energy) ? rawe : *Yw**Yw + FLT_EPSILON;
+        //This also applies a floor
+        *Yf = (raw_energy) ? rawe : *Yw**Yw;
+        if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
         ++Yf; ++Yw;
         for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
+        if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
         Yf -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
+        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf)
+        {
+            *Yf += *Yw * *Yw;
+            if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
+        }
         Yw -= nfft;
 
         //Amplitude
@@ -280,7 +287,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         {
             float sm = 0.0f;
             for (size_t f=0u; f<F; ++f, ++Yf, ++F2B) { sm += *Yf * *F2B; }
-            *Y = (lg) ? logf(sm+FLT_EPSILON) : sm;
+            *Y = (lg) ? (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm) : sm;
         }
         F2B -= BF;
 
@@ -291,7 +298,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         //     size_t f = 0u; float sm = 0.0f;
         //     while (*mels<lmel && f<F) { ++mels; ++f; ++Yf; ++F2B; }
         //     while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
-        //     *Y = (lg) ? logf(sm+FLT_EPSILON) : sm;
+        //     *Y = (lg) ? (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm) : sm;
         //     mels -= f; Yf -= f; F2B += F-f;
         //     lmel = cmel; cmel = rmel;
         //     rmel = (b+2u==B) ? himel : rmel + dmel;
@@ -325,7 +332,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
 }
 
 
-int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const int raw_energy, const double dither, const int dc0, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0)
+int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_fbank_d: N (nsamps in signal) must be positive\n"); return 1; }
     if (fs<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: fs must be positive\n"); return 1; }
@@ -356,23 +363,24 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     int n, prev_n = 0;                          //current/prev samps in X
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
-    //Initialize raw_energy
-    const double rawe_floor = (double)FLT_EPSILON;
-    double rawe = 0.0;
-
     //Initialize dither (this is a direct randn generator using method of PCG library)
+    const float FLT_EPS = (double)FLT_EPSILON;
     const double M_2PI = 2.0*M_PI;
     double u1, u2, R;
     uint32_t r, xorshifted, rot;
     uint64_t state = 0u;
     const uint64_t inc = ((uint64_t)(&state) << 1u) | 1u;
     struct timespec ts;
-    if (dither>DBL_EPSILON)
+    if (dither>FLT_EPS)
     {
         //Init random num generator
         if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_fbank_d: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
         state = (uint64_t)(ts.tv_nsec^ts.tv_sec) + inc;
     }
+
+    //Initialize raw_energy
+    const double rawe_floor = FLT_EPS;
+    double rawe = 0.0;
 
     //Get win (window vec of length L)
     double *win;
@@ -424,15 +432,15 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
-    const double finc = fs/(double)nfft;                     //freq increment in Hz for FFT freqs
-    const double lomel = 2595.0 * log10((1.0+lof)/700.0);    //low-mel cutoff
-    const double himel = 2595.0 * log10((1.0+hif)/700.0);    //high-mel cutoff
-    const double dmel = (himel-lomel) / (double)(B+1u);      //controls spacing on mel scale
-    double *mels;                                            //map STFT freqs to mels
-    double *F2B;                                             //transform matrix for STFT power in F freqs to B mel bins
+    const double finc = fs/(double)nfft;                    //freq increment in Hz for FFT freqs
+    const double lomel = 1127.0 * log(1.0+lof/700.0);       //low-mel cutoff
+    const double himel = 1127.0 * log(1.0+hif/700.0);       //high-mel cutoff
+    const double dmel = (himel-lomel) / (double)(B+1u);     //controls spacing on mel scale
+    double *mels;                                           //map STFT freqs to mels
+    double *F2B;                                            //transform matrix for STFT power in F freqs to B mel bins
     if (!(mels=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
     if (!(F2B=(double *)malloc(BF*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
-    for (size_t f=0; f<F; ++f) { mels[f] = 2595.0 * log10((1.0+((double)f*finc))/700.0); }
+    for (size_t f=0; f<F; ++f) { mels[f] = 1127.0 * log(1.0+(double)f*finc/700.0); }
     double lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
     for (size_t b=0u; b<B; ++b)
     {
@@ -481,16 +489,8 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
             ss += stp;
         }
 
-        //Raw energy
-        if (raw_energy)
-        {
-            rawe = 0.0;
-            for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<rawe_floor) { rawe = rawe_floor; }
-        }
-
         //Dither
-        if (dither>(double)FLT_EPSILON)
+        if (dither>FLT_EPS)
         {
             Xw -= L;
             for (size_t l=0u; l<L; l+=2u)
@@ -511,6 +511,14 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
             }
         }
 
+        //Raw energy
+        if (raw_energy)
+        {
+            Xw -= L; rawe = 0.0;
+            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+        }
+
         //Zero DC (subtract mean)
         if (dc0)
         {
@@ -521,7 +529,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         }
 
         //Preemph
-        if (L<2u || preemph<(double)FLT_EPSILON) { Xw -= L; }
+        if (L<2u || preemph<FLT_EPS) { Xw -= L; }
         else
         {
             --Xw;
@@ -536,9 +544,9 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         fftw_execute(plan);
         
         //Power (from fftw half-complex format)
-        *Yf = (raw_energy) ? rawe : *Yw**Yw + (double)FLT_EPSILON;
+        *Yf = (raw_energy) ? rawe : *Yw**Yw;
         ++Yf; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw**Yw + (double)FLT_EPSILON; }
+        for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
@@ -554,7 +562,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         {
             double sm = 0.0;
             for (size_t f=0u; f<F; ++f, ++Yf, ++F2B) { sm += *Yf * *F2B; }
-            *Y = (lg) ? log(sm+(double)FLT_EPSILON) : sm;
+            *Y = (lg) ? (sm<FLT_EPS) ? log(FLT_EPS) : log(sm) : sm;
         }
         F2B -= BF;
 
@@ -565,7 +573,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         //     size_t f = 0u; double sm = 0.0;
         //     while (*mels<lmel && f<F) { ++mels; ++f; ++Yf; ++F2B; }
         //     while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
-        //     *Y = (lg) ? log(sm+DBL_EPSILON) : sm;
+        //     *Y = (lg) ? (sm<FLT_EPS) ? log(FLT_EPS) : log(sm) : sm;
         //     mels -= f; Yf -= f; F2B += F-f;
         //     lmel = cmel; cmel = rmel;
         //     rmel = (b+2u==B) ? himel : rmel + dmel;

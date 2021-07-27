@@ -7,7 +7,7 @@ const valarray<size_t> oktypes = {1u,2u};
 const size_t I = 1u, O = 1u;
 size_t W, L, stp, B;
 double d, p, fs, fl, shft, lof, hif;
-int snipe, rawe, dc0, amp, lg, mn0;
+int snipe, dc0, rawe, amp, lg, mn0;
 string wintype;
 
 //Description
@@ -22,9 +22,6 @@ descr += "The output Y has size BxW or WxB, where B is the number of mel bins,\n
 descr += "and W is the number of frames (a.k.a. windows).\n";
 descr += "\n";
 descr += "Use -r (--fs) to give the sample rate [default=16000].\n";
-descr += "\n";
-descr += "Include -z (--zero_mean) to subtract the mean from X [default=false].\n";
-descr += "This is applied before any other processing and is not usually recommended.\n";
 descr += "\n";
 descr += "Use -l (--frame_length) to give the frame length in ms [default=25].\n";
 descr += "\n";
@@ -59,6 +56,7 @@ descr += "Include -a (--amplitude) to use amplitude rather than power [default=f
 descr += "This takes the sqrt of FFT power before mel-bin transformation.\n";
 descr += "\n";
 descr += "Use -b (--B) to set the number of mel bins [default=23].\n";
+descr += "Note that B=15 is a better default for 8 kHz srate (23 is for 16 kHz).\n";
 descr += "\n";
 descr += "Use -q (--lof) to set the low-frequency cutoff in Hz [default=20.0].\n";
 descr += "\n";
@@ -66,7 +64,7 @@ descr += "Use -r (--hif) to set the high-frequency cutoff in Hz [default=Nyquist
 descr += "If hif is <= 0.0 Hz, then it is interpreted as offset from Nyquist.\n";
 descr += "\n";
 descr += "Include -g (--log) to output log amplitude or power [default=false].\n";
-descr += "This takes the log of each element of Y + FLT_EPSILON before output.\n";
+descr += "This takes the log of each element of Y (with floor of FLT_EPS) before output.\n";
 descr += "\n";
 descr += "Include -z (--zero_mean) to subtract the means from Y [default=false].\n";
 descr += "This is takes B means and subtracts just before output [not usually recommended].\n";
@@ -83,12 +81,12 @@ struct arg_dbl   *a_sr = arg_dbln("r","fs","<dbl>",0,1,"sample rate in Hz [defau
 struct arg_dbl   *a_fl = arg_dbln("l","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
 struct arg_dbl  *a_stp = arg_dbln("s","frame_shift","<dbl>",0,1,"step in ms between each frame [default=10]");
 struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");\
-struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
 struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither coefficient (weight) [default=0.1]");
 struct arg_lit  *a_dc0 = arg_litn("c","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
+struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
 struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
 struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
-struct arg_lit  *a_amp = arg_litn("a","amp",0,1,"include to output amplitude (sqrt of power) [default=false]");
+struct arg_lit  *a_amp = arg_litn("a","amp",0,1,"include to use amplitude (sqrt of power) [default=false]");
 struct arg_int    *a_b = arg_intn("b","B","<uint>",0,1,"number of mel bins [default=23]");
 struct arg_dbl  *a_lof = arg_dbln("q","lof","<dbl>",0,1,"low (left) freq in Hz [default=20.0]");
 struct arg_dbl  *a_hif = arg_dbln("r","hif","<dbl>",0,1,"hi (right) freq in Hz [default=Nyquist]");
@@ -102,14 +100,6 @@ struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
 fs = (a_sr->count>0) ? a_sr->dval[0] : 16000.0;
 if (fs<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "fs (sample rate) must be nonnegative" << endl; return 1; }
 
-//Get d
-d = (a_d->count>0) ? a_d->dval[0] : 0.1;
-if (d<0.0) { cerr << progstr+": " << __LINE__ << errstr << "d must be nonnegative" << endl; return 1; }
-
-//Get p
-p = (a_p->count>0) ? a_p->dval[0] : 0.97;
-if (p<0.0 || p>1.0) { cerr << progstr+": " << __LINE__ << errstr << "p must be in [0.0 1.0]" << endl; return 1; }
-
 //Get fl
 fl = (a_fl->count>0) ? a_fl->dval[0] : 25.0;
 if (fl<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "frame length must be positive" << endl; return 1; }
@@ -121,8 +111,19 @@ if (shft<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "frame shi
 //Get snip_edges
 snipe = (a_sne->count>0);
 
+//Get d
+d = (a_d->count>0) ? a_d->dval[0] : 0.1;
+if (d<0.0) { cerr << progstr+": " << __LINE__ << errstr << "d must be nonnegative" << endl; return 1; }
+
+//Get dc0
+dc0 = (a_dc0->count>0);
+
 //Get raw_energy
 rawe = (a_re->count>0);
+
+//Get p
+p = (a_p->count>0) ? a_p->dval[0] : 0.97;
+if (p<0.0 || p>1.0) { cerr << progstr+": " << __LINE__ << errstr << "p must be in [0.0 1.0]" << endl; return 1; }
 
 //Get wintype
 if (a_wt->count==0) { wintype = "povey"; }
@@ -147,9 +148,6 @@ if (hif<=lof) { cerr << progstr+": " << __LINE__ << errstr << "hif must be > lof
 if (a_b->count==0) { B = 23u; }
 else if (a_b->ival[0]<1) { cerr << progstr+": " << __LINE__ << errstr << "B must be positive" << endl; return 1; }
 else { B = size_t(a_b->ival[0]); }
-
-//Get dc0
-dc0 = (a_dc0->count>0);
 
 //Get amp
 amp = (a_amp->count>0);
@@ -185,7 +183,7 @@ if (o1.T==1u)
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
     try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-    if (codee::kaldi_fbank_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,rawe,float(d),dc0,float(p),wintype.c_str(),amp,B,float(lof),float(hif),lg,mn0))
+    if (codee::kaldi_fbank_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,B,float(lof),float(hif),lg,mn0))
     { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
     if (wo1)
     {

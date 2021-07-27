@@ -11,7 +11,7 @@
 #include <valarray>
 #include <unordered_map>
 #include <argtable2.h>
-#include "cmli.hpp"
+#include "../util/cmli.hpp"
 #include <cfloat>
 #include "kaldi_fbank.c"
 
@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     ioinfo i1, o1;
     size_t W, L, stp, B;
     double d, p, fs, fl, shft, lof, hif;
-    int snipe, rawe, dc0, amp, lg, mn0;
+    int snipe, dc0, rawe, amp, lg, mn0;
     string wintype;
 
 
@@ -53,9 +53,6 @@ int main(int argc, char *argv[])
     descr += "and W is the number of frames (a.k.a. windows).\n";
     descr += "\n";
     descr += "Use -r (--fs) to give the sample rate [default=16000].\n";
-    descr += "\n";
-    descr += "Include -z (--zero_mean) to subtract the mean from X [default=false].\n";
-    descr += "This is applied before any other processing and is not usually recommended.\n";
     descr += "\n";
     descr += "Use -l (--frame_length) to give the frame length in ms [default=25].\n";
     descr += "\n";
@@ -90,6 +87,7 @@ int main(int argc, char *argv[])
     descr += "This takes the sqrt of FFT power before mel-bin transformation.\n";
     descr += "\n";
     descr += "Use -b (--B) to set the number of mel bins [default=23].\n";
+    descr += "Note that B=15 is a better default for 8 kHz srate (23 is for 16 kHz).\n";
     descr += "\n";
     descr += "Use -q (--lof) to set the low-frequency cutoff in Hz [default=20.0].\n";
     descr += "\n";
@@ -116,12 +114,12 @@ int main(int argc, char *argv[])
     struct arg_dbl   *a_fl = arg_dbln("l","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
     struct arg_dbl  *a_stp = arg_dbln("s","frame_shift","<dbl>",0,1,"step in ms between each frame [default=10]");
     struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");\
-    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
     struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither coefficient (weight) [default=0.1]");
     struct arg_lit  *a_dc0 = arg_litn("c","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
+    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
     struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
     struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
-    struct arg_lit  *a_amp = arg_litn("a","amp",0,1,"include to output amplitude (sqrt of power) [default=false]");
+    struct arg_lit  *a_amp = arg_litn("a","amp",0,1,"include to use amplitude (sqrt of power) [default=false]");
     struct arg_int    *a_b = arg_intn("b","B","<uint>",0,1,"number of mel bins [default=23]");
     struct arg_dbl  *a_lof = arg_dbln("q","lof","<dbl>",0,1,"low (left) freq in Hz [default=20.0]");
     struct arg_dbl  *a_hif = arg_dbln("r","hif","<dbl>",0,1,"hi (right) freq in Hz [default=Nyquist]");
@@ -130,7 +128,7 @@ int main(int argc, char *argv[])
     struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
     struct arg_lit *a_help = arg_litn("h","help",0,1,"display this help and exit");
     struct arg_end  *a_end = arg_end(5);
-    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_re, a_d, a_dc0, a_p, a_wt, a_amp, a_b, a_lof, a_hif, a_log, a_mn0, a_fo, a_help, a_end};
+    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_d, a_dc0, a_re, a_p, a_wt, a_amp, a_b, a_lof, a_hif, a_log, a_mn0, a_fo, a_help, a_end};
     if (arg_nullcheck(argtable)!=0) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating argtable" << endl; return 1; }
     nerrs = arg_parse(argc, argv, argtable);
     if (a_help->count>0)
@@ -143,12 +141,12 @@ int main(int argc, char *argv[])
 
 
     //Check stdin
-    stdi1 = (a_fi->count==0 || strlen(a_fi->filename[0])==0 || strcmp(a_fi->filename[0],"-")==0);
+    stdi1 = (a_fi->count==0 || strlen(a_fi->filename[0])==0u || strcmp(a_fi->filename[0],"-")==0);
     if (stdi1>0 && isatty(fileno(stdin))) { cerr << progstr+": " << __LINE__ << errstr << "no stdin detected" << endl; return 1; }
 
 
     //Check stdout
-    if (a_fo->count>0) { stdo1 = (strlen(a_fo->filename[0])==0 || strcmp(a_fo->filename[0],"-")==0); }
+    if (a_fo->count>0) { stdo1 = (strlen(a_fo->filename[0])==0u || strcmp(a_fo->filename[0],"-")==0); }
     else { stdo1 = (!isatty(fileno(stdout))); }
     wo1 = (stdo1 || a_fo->count>0);
 
@@ -174,14 +172,6 @@ int main(int argc, char *argv[])
     fs = (a_sr->count>0) ? a_sr->dval[0] : 16000.0;
     if (fs<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "fs (sample rate) must be nonnegative" << endl; return 1; }
 
-    //Get d
-    d = (a_d->count>0) ? a_d->dval[0] : 0.1;
-    if (d<0.0) { cerr << progstr+": " << __LINE__ << errstr << "d must be nonnegative" << endl; return 1; }
-
-    //Get p
-    p = (a_p->count>0) ? a_p->dval[0] : 0.97;
-    if (p<0.0 || p>1.0) { cerr << progstr+": " << __LINE__ << errstr << "p must be in [0.0 1.0]" << endl; return 1; }
-
     //Get fl
     fl = (a_fl->count>0) ? a_fl->dval[0] : 25.0;
     if (fl<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "frame length must be positive" << endl; return 1; }
@@ -193,8 +183,19 @@ int main(int argc, char *argv[])
     //Get snip_edges
     snipe = (a_sne->count>0);
 
+    //Get d
+    d = (a_d->count>0) ? a_d->dval[0] : 0.1;
+    if (d<0.0) { cerr << progstr+": " << __LINE__ << errstr << "d must be nonnegative" << endl; return 1; }
+
+    //Get dc0
+    dc0 = (a_dc0->count>0);
+
     //Get raw_energy
     rawe = (a_re->count>0);
+
+    //Get p
+    p = (a_p->count>0) ? a_p->dval[0] : 0.97;
+    if (p<0.0 || p>1.0) { cerr << progstr+": " << __LINE__ << errstr << "p must be in [0.0 1.0]" << endl; return 1; }
 
     //Get wintype
     if (a_wt->count==0) { wintype = "povey"; }
@@ -219,9 +220,6 @@ int main(int argc, char *argv[])
     if (a_b->count==0) { B = 23u; }
     else if (a_b->ival[0]<1) { cerr << progstr+": " << __LINE__ << errstr << "B must be positive" << endl; return 1; }
     else { B = size_t(a_b->ival[0]); }
-
-    //Get dc0
-    dc0 = (a_dc0->count>0);
 
     //Get amp
     amp = (a_amp->count>0);
@@ -273,7 +271,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_fbank_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,rawe,float(d),dc0,float(p),wintype.c_str(),amp,B,float(lof),float(hif),lg,mn0))
+        if (codee::kaldi_fbank_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,B,float(lof),float(hif),lg,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {
@@ -282,7 +280,7 @@ int main(int argc, char *argv[])
         }
         delete[] X; delete[] Y;
     }
-    else if (o1.T==2)
+    else if (o1.T==2u)
     {
         double *X, *Y;
         try { X = new double[i1.N()]; }
@@ -291,7 +289,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_fbank_d(Y,X,i1.N(),double(fs),double(fl),double(shft),snipe,rawe,double(d),dc0,double(p),wintype.c_str(),amp,B,double(lof),double(hif),lg,mn0))
+        if (codee::kaldi_fbank_d(Y,X,i1.N(),double(fs),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),amp,B,double(lof),double(hif),lg,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {
@@ -309,4 +307,3 @@ int main(int argc, char *argv[])
     //Exit
     return ret;
 }
-

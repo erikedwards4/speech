@@ -7,7 +7,7 @@ const valarray<size_t> oktypes = {1u,2u};
 const size_t I = 1u, O = 1u;
 size_t W, nfft, F, L, stp;
 double d, p, fs, fl, shft;
-int snipe, rawe, dc0, mn0;
+int snipe, dc0, rawe, mn0;
 string wintype;
 
 //Description
@@ -47,7 +47,7 @@ descr += "So, if Y is row-major, then it has size W x F; \n";
 descr += "but if Y is col-major, then it has size F x W. \n";
 descr += "\n";
 descr += "Include -g (--raw_energy) to use raw energy [default=false].\n";
-descr += "This is computed before dithering or windowing,\n";
+descr += "This is computed after dithering but before preemphasis,\n";
 descr += "and is substituted in place of the FFT DC term.\n";
 descr += "\n";
 descr += "Use -d (--dweight) to give the dither weight.\n";
@@ -72,9 +72,9 @@ struct arg_dbl   *a_sr = arg_dbln("r","fs","<dbl>",0,1,"sample rate in Hz [defau
 struct arg_dbl   *a_fl = arg_dbln("l","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
 struct arg_dbl  *a_stp = arg_dbln("s","frame_shift","<dbl>",0,1,"step in ms between each frame [default=10]");
 struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");
-struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
 struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither coefficient (weight) [default=0.1]");
 struct arg_lit  *a_dc0 = arg_litn("c","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
+struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
 struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
 struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
 struct arg_lit  *a_mn0 = arg_litn("z","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
@@ -85,14 +85,6 @@ struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
 //Get fs
 fs = (a_sr->count>0) ? a_sr->dval[0] : 16000.0;
 if (fs<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "fs (sample rate) must be nonnegative" << endl; return 1; }
-
-//Get d
-d = (a_d->count>0) ? a_d->dval[0] : 0.1;
-if (d<0.0) { cerr << progstr+": " << __LINE__ << errstr << "d must be nonnegative" << endl; return 1; }
-
-//Get p
-p = (a_p->count>0) ? a_p->dval[0] : 0.97;
-if (p<0.0 || p>1.0) { cerr << progstr+": " << __LINE__ << errstr << "p must be in [0.0 1.0]" << endl; return 1; }
 
 //Get fl
 fl = (a_fl->count>0) ? a_fl->dval[0] : 25.0;
@@ -105,8 +97,19 @@ if (shft<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "frame shi
 //Get snip_edges
 snipe = (a_sne->count>0);
 
+//Get d
+d = (a_d->count>0) ? a_d->dval[0] : 0.1;
+if (d<0.0) { cerr << progstr+": " << __LINE__ << errstr << "d must be nonnegative" << endl; return 1; }
+
+//Get dc0
+dc0 = (a_dc0->count>0);
+
 //Get raw_energy
 rawe = (a_re->count>0);
+
+//Get p
+p = (a_p->count>0) ? a_p->dval[0] : 0.97;
+if (p<0.0 || p>1.0) { cerr << progstr+": " << __LINE__ << errstr << "p must be in [0.0 1.0]" << endl; return 1; }
 
 //Get wintype
 if (a_wt->count==0) { wintype = "povey"; }
@@ -116,9 +119,6 @@ else
 	catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem getting string for window type" << endl; return 1; }
 }
 for (string::size_type c=0u; c<wintype.size(); ++c) { wintype[c] = char(tolower(wintype[c])); }
-
-//Get dc0
-dc0 = (a_dc0->count>0);
 
 //Get mn0
 mn0 = (a_mn0->count>0);
@@ -151,7 +151,7 @@ if (o1.T==1u)
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
     try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-    if (codee::kaldi_spectrogram_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,rawe,float(d),dc0,float(p),wintype.c_str(),mn0))
+    if (codee::kaldi_spectrogram_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),mn0))
     { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
     if (wo1)
     {

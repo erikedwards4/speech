@@ -17,9 +17,9 @@
 //frame_length: float   length of each frame (window) in msec (often 25 ms)
 //frame_shift:  float   step size between each frame center in msec (often 10 ms)
 //snip_edges:   bool    controls style of framing w.r.t. edges of X
-//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
 //dither:       float   dithering weight (set to 0.0 for no dither)
 //dc0:          bool    to subtract mean from each frame after dither
+//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
 //preemph:      float   preemph coeff (set to 0.0 for no preemph)
 //win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
 //mn0:          bool    to subtract means of F feats in Y before output (not usually recommended)
@@ -42,11 +42,11 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const int raw_energy, const float dither, const int dc0, const float preemph, const char win_type[], const int mn0);
-int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const int raw_energy, const double dither, const int dc0, const double preemph, const char win_type[], const int mn0);
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0);
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0);
 
 
-int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const int raw_energy, const float dither, const int dc0, const float preemph, const char win_type[], const int mn0)
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_spectrogram_s: N (nsamps in signal) must be positive\n"); return 1; }
     if (fs<FLT_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_s: fs must be positive\n"); return 1; }
@@ -74,10 +74,6 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
     int n, prev_n = 0;                          //current/prev samps in X
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
-    //Initialize raw_energy
-    const float rawe_floor = FLT_EPSILON;
-    float rawe = 0.0f;
-
     //Initialize dither (this is a direct randn generator using method of PCG library)
     const float M_2PI = (float)(2.0*M_PI);
     float u1, u2, R;
@@ -91,6 +87,10 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_spectrogram_s: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
         state = (uint64_t)(ts.tv_nsec^ts.tv_sec) + inc;
     }
+
+    //Initialize raw_energy
+    const float rawe_floor = FLT_EPSILON;
+    float rawe = 0.0f;
 
     //Get win (window vec of length L)
     float *win;
@@ -170,14 +170,6 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
             ss += stp;
         }
 
-        //Raw energy
-        if (raw_energy)
-        {
-            rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<rawe_floor) { rawe = rawe_floor; }
-        }
-
         //Dither
         if (dither>FLT_EPSILON)
         {
@@ -209,6 +201,14 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
             for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
         }
 
+        //Raw energy
+        if (raw_energy)
+        {
+            Xw -= L; rawe = 0.0f;
+            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+        }
+
         //Preemph
         if (L<2u || preemph<FLT_EPSILON) { Xw -= L; }
         else
@@ -225,15 +225,15 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         fftwf_execute(plan);
         
         //Power (from fftw half-complex format)
-        *Y = (raw_energy) ? rawe : *Yw**Yw + FLT_EPSILON;
+        *Y = (raw_energy) ? rawe : *Yw**Yw;
         ++Y; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw**Yw + FLT_EPSILON; }
+        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
         Y -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         Yw -= nfft;
 
-        //Log
-        for (size_t f=0u; f<F; ++f, ++Y) { *Y = log(*Y); }
+        //Apply floor and take log
+        for (size_t f=0u; f<F; ++f, ++Y) { *Y = (*Y<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(*Y); }
     }
 
     //Subtract means from Y
@@ -262,7 +262,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
 }
 
 
-int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const int raw_energy, const double dither, const int dc0, const double preemph, const char win_type[], const int mn0)
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_spectrogram_d: N (nsamps in signal) must be positive\n"); return 1; }
     if (fs<DBL_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_d: fs must be positive\n"); return 1; }
@@ -290,23 +290,24 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
     int n, prev_n = 0;                          //current/prev samps in X
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
-    //Initialize raw_energy
-    const double rawe_floor = (double)FLT_EPSILON;
-    double rawe = 0.0;
-
     //Initialize dither (this is a direct randn generator using method of PCG library)
+    const float FLT_EPS = (double)FLT_EPSILON;
     const double M_2PI = 2.0*M_PI;
     double u1, u2, R;
     uint32_t r, xorshifted, rot;
     uint64_t state = 0u;
     const uint64_t inc = ((uint64_t)(&state) << 1u) | 1u;
     struct timespec ts;
-    if (dither>DBL_EPSILON)
+    if (dither>FLT_EPS)
     {
         //Init random num generator
         if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_spectrogram_d: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
         state = (uint64_t)(ts.tv_nsec^ts.tv_sec) + inc;
     }
+
+    //Initialize raw_energy
+    const double rawe_floor = FLT_EPS;
+    double rawe = 0.0;
 
     //Get win (window vec of length L)
     double *win;
@@ -386,16 +387,8 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
             ss += stp;
         }
 
-        //Raw energy
-        if (raw_energy)
-        {
-            rawe = 0.0;
-            for (size_t l=0u; l<L; ++l) { rawe += Xw[l] * Xw[l]; }
-            if (rawe<rawe_floor) { rawe = rawe_floor; }
-        }
-
         //Dither
-        if (dither>(double)FLT_EPSILON)
+        if (dither>FLT_EPS)
         {
             Xw -= L;
             for (size_t l=0u; l<L; l+=2u)
@@ -425,8 +418,16 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
             for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
         }
 
+        //Raw energy
+        if (raw_energy)
+        {
+            Xw -= L; rawe = 0.0;
+            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+        }
+
         //Preemph
-        if (L<2u || preemph<(double)FLT_EPSILON) { Xw -= L; }
+        if (L<2u || preemph<FLT_EPS) { Xw -= L; }
         else
         {
             --Xw;
@@ -441,15 +442,15 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         fftw_execute(plan);
         
         //Power (from fftw half-complex format)
-        *Y = (raw_energy) ? rawe : *Yw**Yw + (double)FLT_EPSILON;
+        *Y = (raw_energy) ? rawe : *Yw**Yw;
         ++Y; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw**Yw + (double)FLT_EPSILON; }
+        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
         Y -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         Yw -= nfft;
 
-        //Log
-        for (size_t f=0u; f<F; ++f, ++Y) { *Y = log(*Y); }
+        //Apply floor and take log
+        for (size_t f=0u; f<F; ++f, ++Y) { *Y = (*Y<FLT_EPS) ? log(FLT_EPS) : log(*Y); }
     }
 
     //Subtract means from Y
