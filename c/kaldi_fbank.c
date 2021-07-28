@@ -9,24 +9,28 @@
 //where B is the number of frequency bands, or filter bank members,
 //also referred to as the number of mel bins.
 
+//If use_energy is true, then the feature dim becomes B+1,
+//where the first feature is raw_energy.
+
 //This follows Kaldi and torchaudio conventions for compatibility.
 
 //The following params and boolean options are included:
 //N:            size_t  length of input signal X in samps
-//fs:           float   sample rate in Hz
+//sr:           float   sample rate in Hz
 //frame_length: float   length of each frame (window) in msec (often 25 ms)
 //frame_shift:  float   step size between each frame center in msec (often 10 ms)
 //snip_edges:   bool    controls style of framing w.r.t. edges of X
 //dither:       float   dithering weight (set to 0.0 for no dither)
-//dc0:          bool    to subtract mean from each frame after dither
-//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
+//dc0:          bool    to subtract mean from each frame after dither (usually recommended)
+//raw_energy:   bool    compute raw energy of each frame before preemph and window (instead of after)
 //preemph:      float   preemph coeff (set to 0.0 for no preemph)
 //win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
 //amp:          bool    use magnitude (amplitude) rather than power after FFT
-//B:            size_t  num mel bins (typical default is 23)
 //lof:          float   low freq cutoff for mel bins (typical default is 20 Hz)
 //hif:          float   high freq cutoff for mel bins (typical default is Nyquist)
+//B:            size_t  num mel bins (typical default is 23)
 //lg:           bool    take log after getting mel-bank power
+//use_energy:   bool    use raw_energy, i.e. output it as an extra feature (feat dim becomes B+1)
 //mn0:          bool    to subtract means of B feats in Y before output (not usually recommended)
 
 #include <stdio.h>
@@ -47,14 +51,14 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0);
-int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0);
+int kaldi_fbank_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const float lof, const float hif, const size_t B, const int lg, const int use_energy, const int mn0);
+int kaldi_fbank_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const double lof, const double hif, const size_t B, const int lg, const int use_energy, const int mn0);
 
 
-int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0)
+int kaldi_fbank_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const float lof, const float hif, const size_t B, const int lg, const int use_energy, const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_fbank_s: N (nsamps in signal) must be positive\n"); return 1; }
-    if (fs<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: fs must be positive\n"); return 1; }
+    if (sr<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: sr must be positive\n"); return 1; }
     if (frame_length<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: frame_length must be positive\n"); return 1; }
     if (frame_shift<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: frame_shift must be positive\n"); return 1; }
     if (dither<0.0f) { fprintf(stderr,"error in kaldi_fbank_s: dither must be nonnegative\n"); return 1; }
@@ -64,12 +68,12 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
     if (B<1u) { fprintf(stderr,"error in kaldi_fbank_s: B (num mel bins) must be positive\n"); return 1; }
 
     //Set L (frame_length in samps)
-    const size_t L = (size_t)(fs*frame_length/1000.0f);
+    const size_t L = (size_t)(sr*frame_length/1000.0f);
     if (L<1u) { fprintf(stderr,"error in kaldi_fbank_s: frame_length must be greater than 1 sample\n"); return 1; }
     if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_fbank_s: frame length must be < signal length if snip_edges\n"); return 1; }
 
     //Set stp (frame_shift in samps)
-    const size_t stp = (size_t)(fs*frame_shift/1000.0f);
+    const size_t stp = (size_t)(sr*frame_shift/1000.0f);
     if (stp<1u) { fprintf(stderr,"error in kaldi_fbank_s: frame_shift must be greater than 1 sample\n"); return 1; }
 
     //Set W (number of frames or windows)
@@ -150,7 +154,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
-    const float finc = fs/(float)nfft;                          //freq increment in Hz for FFT freqs
+    const float finc = sr/(float)nfft;                          //freq increment in Hz for FFT freqs
     const float lomel = 1127.0f * logf(1.0f+lof/700.0f);        //low-mel cutoff
     const float himel = 1127.0f * logf(1.0f+hif/700.0f);        //high-mel cutoff
     const float dmel = (himel-lomel) / (float)(B+1u);           //controls spacing on mel scale
@@ -239,7 +243,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         }
 
         //Raw energy
-        if (raw_energy)
+        if (use_energy && raw_energy)
         {
             Xw -= L; rawe = 0.0f;
             for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
@@ -257,23 +261,27 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         
         //Window
         for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
+
+        //Raw energy
+        if (use_energy)
+        {
+            if (!raw_energy)
+            {
+                rawe = 0.0f;
+                for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+                if (rawe<rawe_floor) { rawe = rawe_floor; }
+                Xw -= L;
+            }
+            *Y++ = logf(rawe);
+        }
         
         //FFT
         fftwf_execute(plan);
-        
+
         //Power (from fftw half-complex format)
-        //This also applies a floor
-        *Yf = (raw_energy) ? rawe : *Yw**Yw;
-        if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
-        ++Yf; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
-        if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
+        for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf)
-        {
-            *Yf += *Yw * *Yw;
-            if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
-        }
+        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
         //Amplitude
@@ -282,7 +290,8 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
             for (size_t f=0u; f<F; ++f) { Yf[f] = sqrtf(Yf[f]); }
         }
 
-        //Transform to mel-bank output (slightly faster but harder to follow)
+        //Transform to mel-bank output
+        //This also applies a floor if log taken
         lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
         for (size_t b=0u; b<B; ++b, ++Y)
         {
@@ -290,12 +299,15 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
             while (*mels<lmel && f<F) { ++mels; ++f; }
             Yf += f; F2B += f;
             while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
-            *Y = (lg) ? (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm) : sm;
+            *Y = (lg) ? (sm<FLT_EPSILON) ? log(FLT_EPSILON) : log(sm) : sm;
             mels -= f; Yf -= f; F2B += F-f;
             lmel = cmel; cmel = rmel;
             rmel = (b+2u==B) ? himel : rmel + dmel;
         }
         F2B -= BF;
+
+        //This reproduces a bug in Kaldi (last 2 bins are equal)
+        *(Y-1) = *(Y-2);
     }
 
     //Subtract means from Y
@@ -312,7 +324,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         {
             for (size_t b=0u; b<B; ++b, ++Y) { *Y -= *--mns; }
         }
-        mns-=B; Y-=B*W;
+        mns -= B; Y -= B*W;
         free(mns);
     }
     
@@ -324,10 +336,11 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
 }
 
 
-int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0)
+int kaldi_fbank_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const double lof, const double hif, const size_t B, const int lg, const int use_energy, const int mn0)
 {
+    fprintf(stderr,"lof=%g, hif=%g \n",lof,hif);
     if (N<1u) { fprintf(stderr,"error in kaldi_fbank_d: N (nsamps in signal) must be positive\n"); return 1; }
-    if (fs<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: fs must be positive\n"); return 1; }
+    if (sr<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: sr must be positive\n"); return 1; }
     if (frame_length<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: frame_length must be positive\n"); return 1; }
     if (frame_shift<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: frame_shift must be positive\n"); return 1; }
     if (dither<0.0) { fprintf(stderr,"error in kaldi_fbank_d: dither must be nonnegative\n"); return 1; }
@@ -337,12 +350,12 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     if (B<1u) { fprintf(stderr,"error in kaldi_fbank_d: B (num mel bins) must be positive\n"); return 1; }
 
     //Set L (frame_length in samps)
-    const size_t L = (size_t)(fs*frame_length/1000.0);
+    const size_t L = (size_t)(sr*frame_length/1000.0);
     if (L<1u) { fprintf(stderr,"error in kaldi_fbank_d: frame_length must be greater than 1 sample\n"); return 1; }
     if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_fbank_d: frame length must be < signal length if snip_edges\n"); return 1; }
 
     //Set stp (frame_shift in samps)
-    const size_t stp = (size_t)(fs*frame_shift/1000.0);
+    const size_t stp = (size_t)(sr*frame_shift/1000.0);
     if (stp<1u) { fprintf(stderr,"error in kaldi_fbank_d: frame_shift must be greater than 1 sample\n"); return 1; }
 
     //Set W (number of frames or windows)
@@ -356,7 +369,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
-    const float FLT_EPS = (double)FLT_EPSILON;
+    const double FLT_EPS = (double)FLT_EPSILON;
     const double M_2PI = 2.0*M_PI;
     double u1, u2, R;
     uint32_t r, xorshifted, rot;
@@ -424,7 +437,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
-    const double finc = fs/(double)nfft;                    //freq increment in Hz for FFT freqs
+    const double finc = sr/(double)nfft;                    //freq increment in Hz for FFT freqs
     const double lomel = 1127.0 * log(1.0+lof/700.0);       //low-mel cutoff
     const double himel = 1127.0 * log(1.0+hif/700.0);       //high-mel cutoff
     const double dmel = (himel-lomel) / (double)(B+1u);     //controls spacing on mel scale
@@ -504,7 +517,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         }
 
         //Raw energy
-        if (raw_energy)
+        if (use_energy && raw_energy)
         {
             Xw -= L; rawe = 0.0;
             for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
@@ -531,14 +544,25 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         
         //Window
         for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
-        
+
+        //Raw energy
+        if (use_energy)
+        {
+            if (!raw_energy)
+            {
+                rawe = 0.0;
+                for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+                if (rawe<rawe_floor) { rawe = rawe_floor; }
+                Xw -= L;
+            }
+            *Y++ = log(rawe);
+        }
+
         //FFT
         fftw_execute(plan);
-        
+
         //Power (from fftw half-complex format)
-        *Yf = (raw_energy) ? rawe : *Yw**Yw;
-        ++Yf; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
+        for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
@@ -550,6 +574,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         }
 
         //Transform to mel-bank output
+        //This also applies a floor if log taken
         lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
         for (size_t b=0u; b<B; ++b, ++Y)
         {
@@ -563,6 +588,9 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
             rmel = (b+2u==B) ? himel : rmel + dmel;
         }
         F2B -= BF;
+
+        //This reproduces a bug in Kaldi (last 2 bins are equal)
+        *(Y-1) = *(Y-2);
     }
 
     //Subtract means from Y
@@ -579,7 +607,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         {
             for (size_t b=0u; b<B; ++b, ++Y) { *Y -= *--mns; }
         }
-        mns-=B; Y-=B*W;
+        mns -= B; Y -= B*W;
         free(mns);
     }
     

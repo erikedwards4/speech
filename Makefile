@@ -40,10 +40,14 @@ kaldi.spectrogram: src/kaldi.spectrogram.cpp
 
 
 #My own re-implementation of Kaldi feats
-Kaldi_compat: kaldi_spectrogram kaldi_fbank
+Kaldi_compat: kaldi_spectrogram kaldi_fbank kaldi_mfcc #kaldi_plp
 kaldi_spectrogram: srci/kaldi_spectrogram.cpp c/kaldi_spectrogram.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
 kaldi_fbank: srci/kaldi_fbank.cpp c/kaldi_fbank.c
+	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+kaldi_mfcc: srci/kaldi_mfcc.cpp c/kaldi_mfcc.c
+	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+kaldi_plp: srci/kaldi_plp.cpp c/kaldi_plp.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
 
 

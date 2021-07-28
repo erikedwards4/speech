@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
     int8_t stdi1, stdo1, wo1;
     ioinfo i1, o1;
     size_t W, nfft, F, L, stp;
-    double d, p, fs, fl, shft;
+    double d, p, sr, fl, shft;
     int snipe, dc0, rawe, mn0;
     string wintype;
 
@@ -53,9 +53,9 @@ int main(int argc, char *argv[])
     descr += "and nfft is the next-pow-2 of L, \n";
     descr += "and W is the number of frames (a.k.a. windows).\n";
     descr += "\n";
-    descr += "Use -r (--fs) to give the sample rate [default=16000].\n";
+    descr += "Use -r (--srate) to give the sample rate [default=16000].\n";
     descr += "\n";
-    descr += "Use -l (--frame_length) to give the frame length in ms [default=25].\n";
+    descr += "Use -t (--frame_length) to give the frame length in ms [default=25].\n";
     descr += "\n";
     descr += "Use -s (--frame_shift) to give the frame shift in ms [default=10].\n";
     descr += "\n";
@@ -77,18 +77,19 @@ int main(int argc, char *argv[])
     descr += "So, if Y is row-major, then it has size W x F; \n";
     descr += "but if Y is col-major, then it has size F x W. \n";
     descr += "\n";
-    descr += "Include -g (--raw_energy) to use raw energy [default=false].\n";
-    descr += "This is computed after dithering but before preemphasis,\n";
-    descr += "and is substituted in place of the FFT DC term.\n";
+    descr += "Use -d (--dither) to give the dither weight [default=0.1].\n";
+    descr += "Set this to 0 to turn off dithering.\n";
     descr += "\n";
-    descr += "Use -d (--dweight) to give the dither weight.\n";
+    descr += "Include -z (--zero_dc) to subtract the mean from each frame [default=false].\n";
+    descr += "This is applied just after dither, before preemph [usually recommended].\n";
     descr += "\n";
-    descr += "Include -c (--zero_dc) to subtract the mean from each frame [default=false].\n";
-    descr += "This is applied just after dither, before the preemph.\n";
+    descr += "Include -y (--raw_energy) to compute energy before preemph [default=false].\n";
+    descr += "This is computed just after zero_dc (before preemph and window) for true,\n";
+    descr += "but just before FFT (after preemph and window) for false.\n";
     descr += "\n";
     descr += "Use -p (--preemph) to give the preemphasis.\n";
     descr += "\n";
-    descr += "Include -z (--zero_mean) to subtract the means from Y [default=false].\n";
+    descr += "Include -m (--zero_mean) to subtract the means from Y [default=false].\n";
     descr += "This is takes F means and subtracts just before output [not usually recommended].\n";
     descr += "\n";
     descr += "Examples:\n";
@@ -101,16 +102,16 @@ int main(int argc, char *argv[])
     //Argtable
     int nerrs;
     struct arg_file  *a_fi = arg_filen(nullptr,nullptr,"<file>",I-1,I,"input files (X1,X2)");
-    struct arg_dbl   *a_sr = arg_dbln("r","fs","<dbl>",0,1,"sample rate in Hz [default=16000.0]");
-    struct arg_dbl   *a_fl = arg_dbln("l","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
+    struct arg_dbl   *a_sr = arg_dbln("r","srate","<dbl>",0,1,"sample rate in Hz [default=16000.0]");
+    struct arg_dbl   *a_fl = arg_dbln("t","frame_length","<dbl>",0,1,"length in ms of each frame [default=25]");
     struct arg_dbl  *a_stp = arg_dbln("s","frame_shift","<dbl>",0,1,"step in ms between each frame [default=10]");
     struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");
-    struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither coefficient (weight) [default=0.1]");
-    struct arg_lit  *a_dc0 = arg_litn("c","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
-    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
+    struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither weight [default=0.1]");
+    struct arg_lit  *a_dc0 = arg_litn("z","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
+    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to compute energy before preemph [default=false]");
     struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
     struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
-    struct arg_lit  *a_mn0 = arg_litn("z","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
+    struct arg_lit  *a_mn0 = arg_litn("m","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
     struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
     struct arg_lit *a_help = arg_litn("h","help",0,1,"display this help and exit");
     struct arg_end  *a_end = arg_end(5);
@@ -154,9 +155,9 @@ int main(int argc, char *argv[])
 
     //Get options
 
-    //Get fs
-    fs = (a_sr->count>0) ? a_sr->dval[0] : 16000.0;
-    if (fs<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "fs (sample rate) must be nonnegative" << endl; return 1; }
+    //Get sr
+    sr = (a_sr->count>0) ? a_sr->dval[0] : 16000.0;
+    if (sr<DBL_EPSILON) { cerr << progstr+": " << __LINE__ << errstr << "srate (sample rate) must be nonnegative" << endl; return 1; }
 
     //Get fl
     fl = (a_fl->count>0) ? a_fl->dval[0] : 25.0;
@@ -202,8 +203,8 @@ int main(int argc, char *argv[])
 
 
     //Set output header info
-    L = size_t(fs*fl/1000.0);
-    stp = size_t(fs*shft/1000.0);
+    L = size_t(sr*fl/1000.0);
+    stp = size_t(sr*shft/1000.0);
     nfft = 1u;
     while (nfft<L) { nfft *= 2u; }
     F = nfft/2u + 1u;
@@ -239,7 +240,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_spectrogram_s(Y,X,i1.N(),float(fs),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),mn0))
+        if (codee::kaldi_spectrogram_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {
@@ -257,7 +258,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_spectrogram_d(Y,X,i1.N(),double(fs),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),mn0))
+        if (codee::kaldi_spectrogram_d(Y,X,i1.N(),double(sr),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {

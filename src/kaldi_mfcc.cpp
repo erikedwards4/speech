@@ -13,7 +13,7 @@
 #include <argtable2.h>
 #include "../util/cmli.hpp"
 #include <cfloat>
-#include "kaldi_fbank.c"
+#include "kaldi_mfcc.c"
 
 #ifdef I
 #undef I
@@ -35,15 +35,16 @@ int main(int argc, char *argv[])
     ifstream ifs1; ofstream ofs1;
     int8_t stdi1, stdo1, wo1;
     ioinfo i1, o1;
-    size_t W, L, stp, B;
-    double d, p, sr, fl, shft, lof, hif;
-    int snipe, dc0, rawe, amp, lg, usee, mn0;
+    size_t W, L, stp, B, C;
+    double d, p, sr, fl, shft, lof, hif, Q;
+    int snipe, dc0, rawe, mn0;
     string wintype;
 
 
     //Description
     string descr;
-    descr += "Makes Kaldi mel-fbank features for univariate, real-valued X.\n";
+    descr += "Makes Kaldi MFCC features for univariate, real-valued X.\n";
+    descr += "These are mel-frequency cepstral coefficients (MFCCs).\n";
     descr += "\n";
     descr += "Each frame of X is windowed (element-wise multiplied) by a window;\n";
     descr += "the FFT is done on each windowed frame; and the real-valued power\n";
@@ -80,41 +81,31 @@ int main(int argc, char *argv[])
     descr += "Set this to 0 to turn off dithering.\n";
     descr += "\n";
     descr += "Include -z (--zero_dc) to subtract the mean from each frame [default=false].\n";
-    descr += "This is applied just after dither, before preemph [usually recommended].\n";
-    descr += "\n";
-    descr += "Include -y (--raw_energy) to compute energy before preemph [default=false].\n";
-    descr += "This is computed just after zero_dc (before preemph and window) for true,\n";
-    descr += "but just before FFT (after preemph and window) for false.\n";
-    descr += "For kaldi_fbank, this is used only if use_energy is true.\n";
+    descr += "This is applied just after dither, before the preemph [usually recommended].\n";
     descr += "\n";
     descr += "Use -p (--preemph) to give the preemphasis.\n";
     descr += "\n";
-    descr += "Include -a (--amplitude) to use amplitude rather than power [default=false].\n";
-    descr += "This takes the sqrt of FFT power before mel-bin transformation.\n";
-    descr += "\n";
     descr += "Use -l (--lof) to set the mel-bank low-freq cutoff in Hz [default=20.0].\n";
     descr += "\n";
-    descr += "Use -h (--hif) to set the mel-bank high-freq cutoff in Hz [default=Nyquist].\n";
+    descr += "Use -u (--hif) to set the mel-bank high-freq cutoff in Hz [default=Nyquist].\n";
     descr += "If hif is <= 0.0 Hz, then it is interpreted as offset from Nyquist.\n";
     descr += "\n";
     descr += "Use -b (--B) to set the number of mel bins [default=23].\n";
     descr += "Note that B=15 is a better default for 8 kHz srate (23 is for 16 kHz).\n";
     descr += "\n";
-    descr += "Include -g (--log) to output log amplitude or power [default=false].\n";
-    descr += "This takes the log of each element of Y (with floor of FLT_EPS) before output.\n";
+    descr += "Use -c (--C) to set the number of cepstral coefficients [default=13].\n";
+    descr += "This is the final dim of the output feature vecs, and must be >= B.\n";
     descr += "\n";
-    descr += "Include -u (--use_energy) to output the raw_energy [default=false].\n";
-    descr += "If true, then the feature dim is B+1.\n";
-    descr += "If false, then the feature dim is B (no raw_energy is used).\n";
+    descr += "Use -q (--Q) to set the lifter coefficient [default=22.0].\n";
     descr += "\n";
     descr += "Include -m (--zero_mean) to subtract the means from Y [default=false].\n";
-    descr += "This is takes B means and subtracts just before output [not usually recommended].\n";
+    descr += "This is takes C means and subtracts just before output [not usually recommended].\n";
     descr += "\n";
     descr += "Examples:\n";
-    descr += "$ kaldi_fbank -b40 X -o Y \n";
-    descr += "$ kaldi_fbank -e X > Y \n";
-    descr += "$ cat X | kaldi_fbank -e -z - > Y \n";
-    descr += "$ kaldi_fbank -r8000 -d0 -w'hamming' -e -z -g X -o Y \n";
+    descr += "$ kaldi_mfcc -b40 X -o Y \n";
+    descr += "$ kaldi_mfcc -e X > Y \n";
+    descr += "$ cat X | kaldi_mfcc -e -z - > Y \n";
+    descr += "$ kaldi_mfcc -r8000 -d0 -w'hamming' -e -z X -o Y \n";
 
 
     //Argtable
@@ -126,20 +117,19 @@ int main(int argc, char *argv[])
     struct arg_lit  *a_sne = arg_litn("e","snip_edges",0,1,"include to snip edges [default=false]");\
     struct arg_dbl    *a_d = arg_dbln("d","dither","<dbl>",0,1,"dither weight [default=0.1]");
     struct arg_lit  *a_dc0 = arg_litn("z","zero_dc",0,1,"include to zero the mean of each frame [default=false]");
-    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to compute energy before preemph [default=false]");
+    struct arg_lit   *a_re = arg_litn("y","raw_energy",0,1,"include to use raw energy [default=false]");
     struct arg_dbl    *a_p = arg_dbln("p","preemph","<dbl>",0,1,"preemphasis coefficient in [0 1] [default=0.97]");
     struct arg_str   *a_wt = arg_strn("w","wintype","<str>",0,1,"window type [default='povey']");
-    struct arg_lit  *a_amp = arg_litn("a","amp",0,1,"include to use amplitude (sqrt of power) [default=false]");
-    struct arg_dbl  *a_lof = arg_dbln("l","lof","<dbl>",0,1,"mel-bank low-freq in Hz [default=20.0]");
-    struct arg_dbl  *a_hif = arg_dbln("u","hif","<dbl>",0,1,"mel-bank high-freq in Hz [default=Nyquist]");
+    struct arg_dbl  *a_lof = arg_dbln("l","lof","<dbl>",0,1,"low (left) freq in Hz [default=20.0]");
+    struct arg_dbl  *a_hif = arg_dbln("u","hif","<dbl>",0,1,"hi (right) freq in Hz [default=Nyquist]");
     struct arg_int    *a_b = arg_intn("b","B","<uint>",0,1,"number of mel bins [default=23]");
-    struct arg_lit  *a_log = arg_litn("g","log",0,1,"include to output log of amplitude or power [default=false]");
-    struct arg_lit   *a_ue = arg_litn("x","use_energy",0,1,"include to output raw energy as extra feat [default=false]");
+    struct arg_int    *a_c = arg_intn("c","C","<uint>",0,1,"number of cepstral coeffs [default=13]");
+    struct arg_dbl    *a_q = arg_dbln("q","Q","<dbl>",0,1,"lifter coeff [default=22.0]");
     struct arg_lit  *a_mn0 = arg_litn("m","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
     struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
     struct arg_lit *a_help = arg_litn("h","help",0,1,"display this help and exit");
     struct arg_end  *a_end = arg_end(5);
-    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_d, a_dc0, a_re, a_p, a_wt, a_amp, a_lof, a_hif, a_b, a_log, a_ue, a_mn0, a_fo, a_help, a_end};
+    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_d, a_dc0, a_re, a_p, a_wt, a_lof, a_hif, a_b, a_c, a_q, a_mn0, a_fo, a_help, a_end};
     if (arg_nullcheck(argtable)!=0) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating argtable" << endl; return 1; }
     nerrs = arg_parse(argc, argv, argtable);
     if (a_help->count>0)
@@ -232,14 +222,15 @@ int main(int argc, char *argv[])
     else if (a_b->ival[0]<1) { cerr << progstr+": " << __LINE__ << errstr << "B must be positive" << endl; return 1; }
     else { B = size_t(a_b->ival[0]); }
 
-    //Get amp
-    amp = (a_amp->count>0);
+    //Get C
+    if (a_c->count==0) { C = 13u; }
+    else if (a_c->ival[0]<1) { cerr << progstr+": " << __LINE__ << errstr << "C must be positive" << endl; return 1; }
+    else { C = size_t(a_c->ival[0]); }
+    if (C>B) { cerr << progstr+": " << __LINE__ << errstr << "C (num ceps) must be <= B (num fbank bins)" << endl; return 1; }
 
-    //Get lg
-    lg = (a_log->count>0);
-
-    //Get usee
-    usee = (a_ue->count>0);
+    //Get Q
+    Q = (a_q->count>0) ? a_q->dval[0] : 22.0;
+    if (Q<0.0) { cerr << progstr+": " << __LINE__ << errstr << "Q must be nonnegative" << endl; return 1; }
 
     //Get mn0
     mn0 = (a_mn0->count>0);
@@ -255,8 +246,8 @@ int main(int argc, char *argv[])
     stp = size_t(sr*shft/1000.0);
     W = (snipe) ? 1u+(i1.N()-L)/stp : (i1.N()+stp/2u)/stp;
     o1.F = i1.F; o1.T = i1.T;
-    o1.R = i1.iscolmajor() ? usee ? B+1u : B : W;
-    o1.C = i1.isrowmajor() ? usee ? B+1u : B : W;
+    o1.R = (i1.isrowmajor()) ? W : C;
+    o1.C = (i1.isrowmajor()) ? C : W;
     o1.S = i1.S; o1.H = i1.H;
 
 
@@ -285,7 +276,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_fbank_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),B,lg,usee,mn0))
+        if (codee::kaldi_mfcc_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),float(lof),float(hif),B,C,Q,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {
@@ -303,7 +294,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_fbank_d(Y,X,i1.N(),double(sr),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),amp,double(lof),double(hif),B,lg,usee,mn0))
+        if (codee::kaldi_mfcc_d(Y,X,i1.N(),double(sr),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),double(lof),double(hif),B,C,Q,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {

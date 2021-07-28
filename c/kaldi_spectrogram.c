@@ -13,13 +13,13 @@
 
 //The following params and boolean options are included:
 //N:            size_t  length of input signal X in samps
-//fs:           float   sample rate in Hz
+//sr:           float   sample rate in Hz
 //frame_length: float   length of each frame (window) in msec (often 25 ms)
 //frame_shift:  float   step size between each frame center in msec (often 10 ms)
 //snip_edges:   bool    controls style of framing w.r.t. edges of X
 //dither:       float   dithering weight (set to 0.0 for no dither)
-//dc0:          bool    to subtract mean from each frame after dither
-//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
+//dc0:          bool    to subtract mean from each frame after dither (usually recommended)
+//raw_energy:   bool    compute raw energy of each frame before preemph and window (instead of after)
 //preemph:      float   preemph coeff (set to 0.0 for no preemph)
 //win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
 //mn0:          bool    to subtract means of F feats in Y before output (not usually recommended)
@@ -42,26 +42,26 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0);
-int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0);
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0);
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0);
 
 
-int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0)
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_spectrogram_s: N (nsamps in signal) must be positive\n"); return 1; }
-    if (fs<FLT_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_s: fs must be positive\n"); return 1; }
+    if (sr<FLT_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_s: sr must be positive\n"); return 1; }
     if (frame_length<FLT_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_s: frame_length must be positive\n"); return 1; }
     if (frame_shift<FLT_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_s: frame_shift must be positive\n"); return 1; }
     if (dither<0.0f) { fprintf(stderr,"error in kaldi_spectrogram_s: dither must be nonnegative\n"); return 1; }
     if (preemph<0.0f) { fprintf(stderr,"error in kaldi_spectrogram_s: preemph coeff must be nonnegative\n"); return 1; }
 
     //Set L (frame_length in samps)
-    const size_t L = (size_t)(fs*frame_length/1000.0f);
+    const size_t L = (size_t)(sr*frame_length/1000.0f);
     if (L<1u) { fprintf(stderr,"error in kaldi_spectrogram_s: frame_length must be greater than 1 sample\n"); return 1; }
     if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_spectrogram_s: frame length must be < signal length if snip_edges\n"); return 1; }
 
     //Set stp (frame_shift in samps)
-    const size_t stp = (size_t)(fs*frame_shift/1000.0f);
+    const size_t stp = (size_t)(sr*frame_shift/1000.0f);
     if (stp<1u) { fprintf(stderr,"error in kaldi_spectrogram_s: frame_shift must be greater than 1 sample\n"); return 1; }
 
     //Set W (number of frames or windows)
@@ -219,21 +219,39 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         }
         
         //Window
-        for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
-        
+        for (size_t l=0u; l<L; ++l, ++Xw, ++win) { *Xw *= *win; }
+        win -= L;
+
+        //Raw energy
+        if (!raw_energy)
+        {
+            rawe = 0.0f;
+            for (size_t l=0u; l<L; ++l) { --Xw; rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+        }
+        else { Xw -= L; }
+
         //FFT
         fftwf_execute(plan);
-        
+
+        //For DC power, Kaldi always uses one of the rawe from above
+        *Y++ = rawe; ++Yw;
+
         //Power (from fftw half-complex format)
-        *Y = (raw_energy) ? rawe : *Yw**Yw;
-        ++Y; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
-        Y -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
+        // for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
+        // Y -= 2u;
+        // for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
+        // Yw -= nfft;
+
+        //Power (reproduces a bug in Kaldi for Nyquist)
+        for (size_t f=2u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
+        ++Yw; --Y; *Y += *Yw * *Yw; *(Y+1u) = *Y; ++Yw; --Y;
+        for (size_t f=2u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         Yw -= nfft;
 
         //Apply floor and take log
         for (size_t f=0u; f<F; ++f, ++Y) { *Y = (*Y<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(*Y); }
+        //*(Y-1) = *(Y-2);    //this can also be used to reproduce the bug in Kaldi
     }
 
     //Subtract means from Y
@@ -250,7 +268,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
         {
             for (size_t f=0u; f<F; ++f, ++Y) { *Y -= *--mns; }
         }
-        mns-=F; Y-=F*W;
+        mns -= F; Y -= F*W;
         free(mns);
     }
     
@@ -262,22 +280,22 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float fs, con
 }
 
 
-int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0)
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_spectrogram_d: N (nsamps in signal) must be positive\n"); return 1; }
-    if (fs<DBL_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_d: fs must be positive\n"); return 1; }
+    if (sr<DBL_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_d: sr must be positive\n"); return 1; }
     if (frame_length<DBL_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_d: frame_length must be positive\n"); return 1; }
     if (frame_shift<DBL_EPSILON) { fprintf(stderr,"error in kaldi_spectrogram_d: frame_shift must be positive\n"); return 1; }
     if (dither<0.0) { fprintf(stderr,"error in kaldi_spectrogram_d: dither must be nonnegative\n"); return 1; }
     if (preemph<0.0) { fprintf(stderr,"error in kaldi_spectrogram_d: preemph coeff must be nonnegative\n"); return 1; }
 
     //Set L (frame_length in samps)
-    const size_t L = (size_t)(fs*frame_length/1000.0);
+    const size_t L = (size_t)(sr*frame_length/1000.0);
     if (L<1u) { fprintf(stderr,"error in kaldi_spectrogram_d: frame_length must be greater than 1 sample\n"); return 1; }
     if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_spectrogram_d: frame length must be < signal length if snip_edges\n"); return 1; }
 
     //Set stp (frame_shift in samps)
-    const size_t stp = (size_t)(fs*frame_shift/1000.0);
+    const size_t stp = (size_t)(sr*frame_shift/1000.0);
     if (stp<1u) { fprintf(stderr,"error in kaldi_spectrogram_d: frame_shift must be greater than 1 sample\n"); return 1; }
 
     //Set W (number of frames or windows)
@@ -291,7 +309,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
-    const float FLT_EPS = (double)FLT_EPSILON;
+    const double FLT_EPS = (double)FLT_EPSILON;
     const double M_2PI = 2.0*M_PI;
     double u1, u2, R;
     uint32_t r, xorshifted, rot;
@@ -421,7 +439,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         //Raw energy
         if (raw_energy)
         {
-            Xw -= L; rawe = 0.0;
+            Xw -= L; rawe = 0.0f;
             for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
@@ -436,17 +454,34 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         }
         
         //Window
-        for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
+        for (size_t l=0u; l<L; ++l, ++Xw, ++win) { *Xw *= *win; }
+        win -= L;
+
+        //Raw energy
+        if (!raw_energy)
+        {
+            rawe = 0.0;
+            for (size_t l=0u; l<L; ++l) { --Xw; rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+        }
+        else { Xw -= L; }
         
         //FFT
         fftw_execute(plan);
-        
+
+        //For DC power, Kaldi always uses one of the rawe from above
+        *Y++ = rawe; ++Yw;
+
         //Power (from fftw half-complex format)
-        *Y = (raw_energy) ? rawe : *Yw**Yw;
-        ++Y; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
-        Y -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
+        // for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
+        // Y -= 2u;
+        // for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
+        // Yw -= nfft;
+
+        //Power (reproduces a bug in Kaldi for Nyquist)
+        for (size_t f=2u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
+        ++Yw; --Y; *Y += *Yw * *Yw; *(Y+1u) = *Y; ++Yw; --Y;
+        for (size_t f=2u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         Yw -= nfft;
 
         //Apply floor and take log
@@ -467,7 +502,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double fs, 
         {
             for (size_t f=0u; f<F; ++f, ++Y) { *Y -= *--mns; }
         }
-        mns-=F; Y-=F*W;
+        mns -= F; Y -= F*W;
         free(mns);
     }
 

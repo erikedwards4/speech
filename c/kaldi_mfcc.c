@@ -1,33 +1,33 @@
-//Kaldi-format "fbank" features
+//Kaldi-format MFCC features
 //STFT (short-term Fourier transform) of univariate time series X,
-//outputing power on a mel frequency scale in Y.
+//obtains power on a mel frequency scale in Y, and then does
+//DCT and lifter to obtain mel-frequency cepstral coefficients (MFCCs)
 
-//This takes a univariate time series (vector) X of length N, and
-//outputs the power in each of B mel-frequency bands at each of W windows.
-//If Y is row-major, then it has size W x B.
-//If Y is col-major, then it has size B x W.
-//where B is the number of frequency bands, or filter bank members,
-//also referred to as the number of mel bins.
+//This takes a univariate time series (vector) X of length N,
+//and outputs C MFCCs at each of W windows.
+//If Y is row-major, then it has size W x C.
+//If Y is col-major, then it has size C x W.
+//where C is the number of cepstral coefficients.
 
 //This follows Kaldi and torchaudio conventions for compatibility.
 
 //The following params and boolean options are included:
 //N:            size_t  length of input signal X in samps
-//fs:           float   sample rate in Hz
+//sr:           float   sample rate in Hz
 //frame_length: float   length of each frame (window) in msec (often 25 ms)
 //frame_shift:  float   step size between each frame center in msec (often 10 ms)
 //snip_edges:   bool    controls style of framing w.r.t. edges of X
 //dither:       float   dithering weight (set to 0.0 for no dither)
-//dc0:          bool    to subtract mean from each frame after dither
-//raw_energy:   bool    use raw energy of each frame instead of DC^2 from FFT
+//dc0:          bool    to subtract mean from each frame after dither (usually recommended)
+//raw_energy:   bool    compute raw energy of each frame before preemph and window (instead of after)
 //preemph:      float   preemph coeff (set to 0.0 for no preemph)
 //win_type:     string  window type in {rectangular,blackman,hamming,hann,povey} 
-//amp:          bool    use magnitude (amplitude) rather than power after FFT
-//B:            size_t  num mel bins (typical default is 23)
 //lof:          float   low freq cutoff for mel bins (typical default is 20 Hz)
 //hif:          float   high freq cutoff for mel bins (typical default is Nyquist)
-//lg:           bool    take log after getting mel-bank power
-//mn0:          bool    to subtract means of B feats in Y before output (not usually recommended)
+//B:            size_t  num mel bins (typical default is 23)
+//C:            size_t  num cepstral coeffs (typical default is 13)
+//Q:            float   lifter coefficient Q (typical default is 22.0)
+//mn0:          bool    to subtract means of C feats in Y before output (not usually recommended)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,30 +47,33 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0);
-int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0);
+int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const float lof, const float hif, const size_t B, const size_t C, const float Q, const int mn0);
+int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const double lof, const double hif, const size_t B, const size_t C, const double Q, const int mn0);
 
 
-int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int amp, const size_t B, const float lof, const float hif, const int lg, const int mn0)
+int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const float lof, const float hif, const size_t B, const size_t C, const float Q, const int mn0)
 {
-    if (N<1u) { fprintf(stderr,"error in kaldi_fbank_s: N (nsamps in signal) must be positive\n"); return 1; }
-    if (fs<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: fs must be positive\n"); return 1; }
-    if (frame_length<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: frame_length must be positive\n"); return 1; }
-    if (frame_shift<FLT_EPSILON) { fprintf(stderr,"error in kaldi_fbank_s: frame_shift must be positive\n"); return 1; }
-    if (dither<0.0f) { fprintf(stderr,"error in kaldi_fbank_s: dither must be nonnegative\n"); return 1; }
-    if (preemph<0.0f) { fprintf(stderr,"error in kaldi_fbank_s: preemph coeff must be nonnegative\n"); return 1; }
-    if (lof<0.0f) { fprintf(stderr,"error in kaldi_fbank_s: lof (low-freq cutoff) must be nonnegative\n"); return 1; }
-    if (hif<=lof) { fprintf(stderr,"error in kaldi_fbank_s: hif (high-freq cutoff) must be > lof\n"); return 1; }
-    if (B<1u) { fprintf(stderr,"error in kaldi_fbank_s: B (num mel bins) must be positive\n"); return 1; }
+    if (N<1u) { fprintf(stderr,"error in kaldi_mfcc_s: N (nsamps in signal) must be positive\n"); return 1; }
+    if (sr<FLT_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_s: sr must be positive\n"); return 1; }
+    if (frame_length<FLT_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_s: frame_length must be positive\n"); return 1; }
+    if (frame_shift<FLT_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_s: frame_shift must be positive\n"); return 1; }
+    if (dither<0.0f) { fprintf(stderr,"error in kaldi_mfcc_s: dither must be nonnegative\n"); return 1; }
+    if (preemph<0.0f) { fprintf(stderr,"error in kaldi_mfcc_s: preemph coeff must be nonnegative\n"); return 1; }
+    if (lof<0.0f) { fprintf(stderr,"error in kaldi_mfcc_s: lof (low-freq cutoff) must be nonnegative\n"); return 1; }
+    if (hif<=lof) { fprintf(stderr,"error in kaldi_mfcc_s: hif (high-freq cutoff) must be > lof\n"); return 1; }
+    if (B<1u) { fprintf(stderr,"error in kaldi_mfcc_s: B (num mel bins) must be positive\n"); return 1; }
+    if (C<1u) { fprintf(stderr,"error in kaldi_mfcc_s: C (num cepstral coeffs) must be positive\n"); return 1; }
+    if (C>B) { fprintf(stderr,"error in kaldi_mfcc_s: C (num cepstral coeffs) must be <= B (num mel bins)\n"); return 1; }
+    if (Q<0.0f) { fprintf(stderr,"error in kaldi_mfcc_s: Q (lifter coeff) must be nonnegative\n"); return 1; }
 
     //Set L (frame_length in samps)
-    const size_t L = (size_t)(fs*frame_length/1000.0f);
-    if (L<1u) { fprintf(stderr,"error in kaldi_fbank_s: frame_length must be greater than 1 sample\n"); return 1; }
-    if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_fbank_s: frame length must be < signal length if snip_edges\n"); return 1; }
+    const size_t L = (size_t)(sr*frame_length/1000.0f);
+    if (L<1u) { fprintf(stderr,"error in kaldi_mfcc_s: frame_length must be greater than 1 sample\n"); return 1; }
+    if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_mfcc_s: frame length must be < signal length if snip_edges\n"); return 1; }
 
     //Set stp (frame_shift in samps)
-    const size_t stp = (size_t)(fs*frame_shift/1000.0f);
-    if (stp<1u) { fprintf(stderr,"error in kaldi_fbank_s: frame_shift must be greater than 1 sample\n"); return 1; }
+    const size_t stp = (size_t)(sr*frame_shift/1000.0f);
+    if (stp<1u) { fprintf(stderr,"error in kaldi_mfcc_s: frame_shift must be greater than 1 sample\n"); return 1; }
 
     //Set W (number of frames or windows)
     const size_t W = (snip_edges) ? 1u+(N-L)/stp : (N+stp/2u)/stp;
@@ -92,7 +95,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
     if (dither>FLT_EPSILON)
     {
         //Init random num generator
-        if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_fbank_s: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
+        if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_mfcc_s: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
         state = (uint64_t)(ts.tv_nsec^ts.tv_sec) + inc;
     }
 
@@ -102,7 +105,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
 
     //Get win (window vec of length L)
     float *win;
-    if (!(win=(float *)malloc(L*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(win=(float *)malloc(L*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
     if (strncmp(win_type,"rectangular",1u)==0)
     {
         for (size_t l=0u; l<L; ++l) { win[l] = 1.0f; }
@@ -129,7 +132,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         }
         else
         {
-            fprintf(stderr,"error in kaldi_fbank_s: window type must be rectangular, blackman, hamming, hann or povey (lower-cased)\n"); return 1;
+            fprintf(stderr,"error in kaldi_mfcc_s: window type must be rectangular, blackman, hamming, hann or povey (lower-cased)\n"); return 1;
         }
     }
 
@@ -144,20 +147,20 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
     float *Xw, *Yw;
     Xw = (float *)fftwf_malloc(nfft*sizeof(float));
     Yw = (float *)fftwf_malloc(nfft*sizeof(float));
-    fftwf_plan plan = fftwf_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
-    if (!plan) { fprintf(stderr,"error in kaldi_fbank_s: problem creating fftw plan"); return 1; }
+    fftwf_plan fft_plan = fftwf_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
+    if (!fft_plan) { fprintf(stderr,"error in kaldi_mfcc_s: problem creating fftw plan"); return 1; }
     for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
-    const float finc = fs/(float)nfft;                          //freq increment in Hz for FFT freqs
+    const float finc = sr/(float)nfft;                          //freq increment in Hz for FFT freqs
     const float lomel = 1127.0f * logf(1.0f+lof/700.0f);        //low-mel cutoff
     const float himel = 1127.0f * logf(1.0f+hif/700.0f);        //high-mel cutoff
     const float dmel = (himel-lomel) / (float)(B+1u);           //controls spacing on mel scale
     float *mels;                                                //map STFT freqs to mels
     float *F2B;                                                 //transform matrix for STFT power in F freqs to B mel bins
-    if (!(mels=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
-    if (!(F2B=(float *)malloc(BF*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(mels=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(F2B=(float *)malloc(BF*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
     for (size_t f=0; f<F; ++f) { mels[f] = 1127.0f * logf(1.0f+(float)f*finc/700.0f); }
     float lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
     for (size_t b=0u; b<B; ++b)
@@ -175,7 +178,28 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
 
     //Initialize Yf (initial output with power at F STFT freqs)
     float *Yf;
-    if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
+
+    //Initialize DCT
+    //Kaldi uses a dct_matrix, that is B x B, and then resized to nceps x B.
+    float *Xd, *Yd;
+    Xd = (float *)fftwf_malloc(B*sizeof(float));
+    Yd = (float *)fftwf_malloc(B*sizeof(float));
+    fftwf_plan dct_plan = fftwf_plan_r2r_1d((int)B,Xd,Yd,FFTW_REDFT10,FFTW_ESTIMATE);
+    if (!dct_plan) { fprintf(stderr,"error in kaldi_mfcc_s: problem creating fftw plan"); return 1; }
+    for (size_t b=0u; b<B; ++b) { Xd[b] = 0.0f; }
+
+    //Initialize lifter (include DCT scaling)
+    const float sc = 1.0f/sqrtf((float)(2u*B));
+    float *lift;
+    if (!(lift=(float *)malloc(C*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (Q>FLT_EPSILON)
+    {
+        for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0f + 0.5f*Q*sinf((float)M_PI*(float)c/Q); }
+    }
+    else { for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0f; } }
+    for (size_t c=1u; c<C; ++c) { *--lift *= sc; }
+    *--lift *= 0.5f/sqrtf((float)B);
 
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
@@ -259,10 +283,9 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
         
         //FFT
-        fftwf_execute(plan);
+        fftwf_execute(fft_plan);
         
-        //Power (from fftw half-complex format)
-        //This also applies a floor
+        //Power (from fftw half-complex format); also applies a floor
         *Yf = (raw_energy) ? rawe : *Yw**Yw;
         if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
         ++Yf; ++Yw;
@@ -276,33 +299,34 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         }
         Yw -= nfft;
 
-        //Amplitude
-        if (amp)
-        {
-            for (size_t f=0u; f<F; ++f) { Yf[f] = sqrtf(Yf[f]); }
-        }
-
-        //Transform to mel-bank output (slightly faster but harder to follow)
+        //Transform to mel-bank output
         lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
-        for (size_t b=0u; b<B; ++b, ++Y)
+        for (size_t b=0u; b<B; ++b, ++Xd)
         {
             size_t f = 0u; float sm = 0.0f;
             while (*mels<lmel && f<F) { ++mels; ++f; }
             Yf += f; F2B += f;
             while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
-            *Y = (lg) ? (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm) : sm;
+            *Xd = (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm);
             mels -= f; Yf -= f; F2B += F-f;
             lmel = cmel; cmel = rmel;
             rmel = (b+2u==B) ? himel : rmel + dmel;
         }
-        F2B -= BF;
+        F2B -= BF; Xd -= B;
+
+        //DCT
+        fftwf_execute(dct_plan);
+
+        //Lifter
+        for (size_t c=0u; c<C; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
+        lift -= C; Yd -= C;
     }
 
     //Subtract means from Y
     if (mn0)
     {
         float *mns;
-        if (!(mns=(float *)calloc(B,sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with calloc. "); perror("calloc"); return 1; }
+        if (!(mns=(float *)calloc(B,sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with calloc. "); perror("calloc"); return 1; }
         for (size_t w=0u; w<W; ++w, mns-=B)
         {
             for (size_t b=0u; b<B; ++b, ++mns) { *mns += *--Y; }
@@ -312,38 +336,42 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float fs, const flo
         {
             for (size_t b=0u; b<B; ++b, ++Y) { *Y -= *--mns; }
         }
-        mns-=B; Y-=B*W;
+        mns -= B; Y -= B*W;
         free(mns);
     }
     
     //Free
-    free(win); free(mels); free(F2B); free(Yf);
-    fftwf_destroy_plan(plan); fftwf_free(Xw); fftwf_free(Yw);
+    free(win); free(mels); free(F2B); free(Yf); free(lift);
+    fftwf_destroy_plan(fft_plan); fftwf_free(Xw); fftwf_free(Yw);
+    fftwf_destroy_plan(dct_plan); fftwf_free(Xd); fftwf_free(Yd);
 
     return 0;
 }
 
 
-int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int amp, const size_t B, const double lof, const double hif, const int lg, const int mn0)
+int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const double lof, const double hif, const size_t B, const size_t C, const double Q, const int mn0)
 {
-    if (N<1u) { fprintf(stderr,"error in kaldi_fbank_d: N (nsamps in signal) must be positive\n"); return 1; }
-    if (fs<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: fs must be positive\n"); return 1; }
-    if (frame_length<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: frame_length must be positive\n"); return 1; }
-    if (frame_shift<DBL_EPSILON) { fprintf(stderr,"error in kaldi_fbank_d: frame_shift must be positive\n"); return 1; }
-    if (dither<0.0) { fprintf(stderr,"error in kaldi_fbank_d: dither must be nonnegative\n"); return 1; }
-    if (preemph<0.0) { fprintf(stderr,"error in kaldi_fbank_d: preemph coeff must be nonnegative\n"); return 1; }
-    if (lof<0.0) { fprintf(stderr,"error in kaldi_fbank_d: lof (low-freq cutoff) must be nonnegative\n"); return 1; }
-    if (hif<=lof) { fprintf(stderr,"error in kaldi_fbank_d: hif (high-freq cutoff) must be > lof\n"); return 1; }
-    if (B<1u) { fprintf(stderr,"error in kaldi_fbank_d: B (num mel bins) must be positive\n"); return 1; }
-
+    if (N<1u) { fprintf(stderr,"error in kaldi_mfcc_d: N (nsamps in signal) must be positive\n"); return 1; }
+    if (sr<DBL_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_d: sr must be positive\n"); return 1; }
+    if (frame_length<DBL_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_d: frame_length must be positive\n"); return 1; }
+    if (frame_shift<DBL_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_d: frame_shift must be positive\n"); return 1; }
+    if (dither<0.0) { fprintf(stderr,"error in kaldi_mfcc_d: dither must be nonnegative\n"); return 1; }
+    if (preemph<0.0) { fprintf(stderr,"error in kaldi_mfcc_d: preemph coeff must be nonnegative\n"); return 1; }
+    if (lof<0.0) { fprintf(stderr,"error in kaldi_mfcc_d: lof (low-freq cutoff) must be nonnegative\n"); return 1; }
+    if (hif<=lof) { fprintf(stderr,"error in kaldi_mfcc_d: hif (high-freq cutoff) must be > lof\n"); return 1; }
+    if (B<1u) { fprintf(stderr,"error in kaldi_mfcc_d: B (num mel bins) must be positive\n"); return 1; }
+    if (C<1u) { fprintf(stderr,"error in kaldi_mfcc_d: C (num cepstral coeffs) must be positive\n"); return 1; }
+    if (C>B) { fprintf(stderr,"error in kaldi_mfcc_d: C (num cepstral coeffs) must be <= B (num mel bins)\n"); return 1; }
+    if (Q<0.0) { fprintf(stderr,"error in kaldi_mfcc_d: Q (lifter coeff) must be nonnegative\n"); return 1; }
+    
     //Set L (frame_length in samps)
-    const size_t L = (size_t)(fs*frame_length/1000.0);
-    if (L<1u) { fprintf(stderr,"error in kaldi_fbank_d: frame_length must be greater than 1 sample\n"); return 1; }
-    if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_fbank_d: frame length must be < signal length if snip_edges\n"); return 1; }
+    const size_t L = (size_t)(sr*frame_length/1000.0);
+    if (L<1u) { fprintf(stderr,"error in kaldi_mfcc_d: frame_length must be greater than 1 sample\n"); return 1; }
+    if (snip_edges && L>N) { fprintf(stderr,"error in kaldi_mfcc_d: frame length must be < signal length if snip_edges\n"); return 1; }
 
     //Set stp (frame_shift in samps)
-    const size_t stp = (size_t)(fs*frame_shift/1000.0);
-    if (stp<1u) { fprintf(stderr,"error in kaldi_fbank_d: frame_shift must be greater than 1 sample\n"); return 1; }
+    const size_t stp = (size_t)(sr*frame_shift/1000.0);
+    if (stp<1u) { fprintf(stderr,"error in kaldi_mfcc_d: frame_shift must be greater than 1 sample\n"); return 1; }
 
     //Set W (number of frames or windows)
     const size_t W = (snip_edges) ? 1u+(N-L)/stp : (N+stp/2u)/stp;
@@ -356,7 +384,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     const int xd = (int)L - (int)stp;           //a fixed increment after each frame for speed below
 
     //Initialize dither (this is a direct randn generator using method of PCG library)
-    const float FLT_EPS = (double)FLT_EPSILON;
+    const double FLT_EPS = (double)FLT_EPSILON;
     const double M_2PI = 2.0*M_PI;
     double u1, u2, R;
     uint32_t r, xorshifted, rot;
@@ -366,7 +394,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     if (dither>FLT_EPS)
     {
         //Init random num generator
-        if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_fbank_d: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
+        if (timespec_get(&ts,TIME_UTC)==0) { fprintf(stderr, "error in kaldi_mfcc_d: problem with timespec_get.\n"); perror("timespec_get"); return 1; }
         state = (uint64_t)(ts.tv_nsec^ts.tv_sec) + inc;
     }
 
@@ -376,7 +404,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
 
     //Get win (window vec of length L)
     double *win;
-    if (!(win=(double *)malloc(L*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(win=(double *)malloc(L*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
     if (strncmp(win_type,"rectangular",1u)==0)
     {
         for (size_t l=0u; l<L; ++l) { win[l] = 1.0; }
@@ -403,7 +431,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         }
         else
         {
-            fprintf(stderr,"error in kaldi_fbank_d: window type must be rectangular, blackman, hamming, hann or povey (lower-cased)\n"); return 1;
+            fprintf(stderr,"error in kaldi_mfcc_d: window type must be rectangular, blackman, hamming, hann or povey (lower-cased)\n"); return 1;
         }
     }
 
@@ -418,20 +446,20 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
     double *Xw, *Yw;
     Xw = (double *)fftw_malloc(nfft*sizeof(double));
     Yw = (double *)fftw_malloc(nfft*sizeof(double));
-    fftw_plan plan = fftw_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
-    if (!plan) { fprintf(stderr,"error in kaldi_fbank_d: problem creating fftw plan"); return 1; }
+    fftw_plan fft_plan = fftw_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
+    if (!fft_plan) { fprintf(stderr,"error in kaldi_mfcc_d: problem creating fftw plan"); return 1; }
     for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
-    const double finc = fs/(double)nfft;                    //freq increment in Hz for FFT freqs
+    const double finc = sr/(double)nfft;                    //freq increment in Hz for FFT freqs
     const double lomel = 1127.0 * log(1.0+lof/700.0);       //low-mel cutoff
     const double himel = 1127.0 * log(1.0+hif/700.0);       //high-mel cutoff
     const double dmel = (himel-lomel) / (double)(B+1u);     //controls spacing on mel scale
     double *mels;                                           //map STFT freqs to mels
     double *F2B;                                            //transform matrix for STFT power in F freqs to B mel bins
-    if (!(mels=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
-    if (!(F2B=(double *)malloc(BF*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(mels=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(F2B=(double *)malloc(BF*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
     for (size_t f=0; f<F; ++f) { mels[f] = 1127.0 * log(1.0+(double)f*finc/700.0); }
     double lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
     for (size_t b=0u; b<B; ++b)
@@ -449,7 +477,28 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
 
     //Initialize Yf (initial output with power at F STFT freqs)
     double *Yf;
-    if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
+
+    //Initialize DCT
+    //Kaldi uses a dct_matrix, that is B x B, and then resized to nceps x B.
+    double *Xd, *Yd;
+    Xd = (double *)fftw_malloc(B*sizeof(double));
+    Yd = (double *)fftw_malloc(B*sizeof(double));
+    fftw_plan dct_plan = fftw_plan_r2r_1d((int)B,Xd,Yd,FFTW_REDFT10,FFTW_ESTIMATE);
+    if (!dct_plan) { fprintf(stderr,"error in kaldi_mfcc_d: problem creating fftw plan"); return 1; }
+    for (size_t b=0u; b<B; ++b) { Xd[b] = 0.0; }
+
+    //Initialize lifter (include DCT scaling)
+    const double sc = 1.0/sqrt((double)(2u*B));
+    double *lift;
+    if (!(lift=(double *)malloc(C*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (Q>FLT_EPS)
+    {
+        for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0 + 0.5*Q*sin(M_PI*(double)c/Q); }
+    }
+    else { for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0; } }
+    for (size_t c=1u; c<C; ++c) { *--lift *= sc; }
+    *--lift *= 0.5/sqrt((double)B);
 
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
@@ -533,7 +582,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
         
         //FFT
-        fftw_execute(plan);
+        fftw_execute(fft_plan);
         
         //Power (from fftw half-complex format)
         *Yf = (raw_energy) ? rawe : *Yw**Yw;
@@ -543,12 +592,6 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
-        //Amplitude
-        if (amp)
-        {
-            for (size_t f=0u; f<F; ++f) { Yf[f] = sqrt(Yf[f]); }
-        }
-
         //Transform to mel-bank output
         lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
         for (size_t b=0u; b<B; ++b, ++Y)
@@ -557,19 +600,26 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
             while (*mels<lmel) { ++mels; ++f; }
             Yf += f; F2B += f;
             while (*mels<rmel) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
-            *Y = (lg) ? (sm<FLT_EPS) ? log(FLT_EPS) : log(sm) : sm;
+            *Y = (sm<FLT_EPS) ? log(FLT_EPS) : log(sm);
             mels -= f; Yf -= f; F2B += F-f;
             lmel = cmel; cmel = rmel;
             rmel = (b+2u==B) ? himel : rmel + dmel;
         }
         F2B -= BF;
+
+        //DCT
+        fftw_execute(dct_plan);
+
+        //Lifter
+        for (size_t c=0u; c<C; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
+        lift -= C; Yd -= C;
     }
 
     //Subtract means from Y
     if (mn0)
     {
         double *mns;
-        if (!(mns=(double *)calloc(B,sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with calloc. "); perror("calloc"); return 1; }
+        if (!(mns=(double *)calloc(B,sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with calloc. "); perror("calloc"); return 1; }
         for (size_t w=0u; w<W; ++w, mns-=B)
         {
             for (size_t b=0u; b<B; ++b, ++mns) { *mns += *--Y; }
@@ -579,13 +629,14 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double fs, const 
         {
             for (size_t b=0u; b<B; ++b, ++Y) { *Y -= *--mns; }
         }
-        mns-=B; Y-=B*W;
+        mns -= B; Y -= B*W;
         free(mns);
     }
     
     //Free
-    free(win); free(mels); free(F2B); free(Yf);
-    fftw_destroy_plan(plan); fftw_free(Xw); fftw_free(Yw);
+    free(win); free(mels); free(F2B); free(Yf); free(lift);
+    fftw_destroy_plan(fft_plan); fftw_free(Xw); fftw_free(Yw);
+    fftw_destroy_plan(dct_plan); fftw_free(Xd); fftw_free(Yd);
 
     return 0;
 }
