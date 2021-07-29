@@ -7,7 +7,7 @@ const valarray<size_t> oktypes = {1u,2u};
 const size_t I = 1u, O = 1u;
 size_t W, L, stp, B, C;
 double d, p, sr, fl, shft, lof, hif, Q;
-int snipe, dc0, rawe, mn0;
+int snipe, dc0, rawe, usee, mn0;
 string wintype;
 
 //Description
@@ -17,9 +17,10 @@ descr += "These are mel-frequency cepstral coefficients (MFCCs).\n";
 descr += "\n";
 descr += "Each frame of X is windowed (element-wise multiplied) by a window;\n";
 descr += "the FFT is done on each windowed frame; and the real-valued power\n";
-descr += "is transformed to power in B mel frequency bands.\n";
+descr += "is transformed to power in B mel frequency bands. Then the C cepstral\n";
+descr += "coeffs (CCs) are obtained by DCT (discrete cos transform) and lifter.\n";
 descr += "\n";
-descr += "The output Y has size BxW or WxB, where B is the number of mel bins,\n";
+descr += "The output Y has size CxW or WxC, where C is the number of mel bins,\n";
 descr += "and W is the number of frames (a.k.a. windows).\n";
 descr += "\n";
 descr += "Use -r (--srate) to give the sample rate [default=16000].\n";
@@ -43,8 +44,8 @@ descr += "and the last frame can overlap the end of X.\n";
 descr += "\n";
 descr += "The following framing convention is used here:\n";
 descr += "Samples from one frame are contiguous in memory, for row- and col-major.\n";
-descr += "So, if Y is row-major, then it has size W x F; \n";
-descr += "but if Y is col-major, then it has size F x W. \n";
+descr += "So, if Y is row-major, then it has size W x C; \n";
+descr += "but if Y is col-major, then it has size C x W. \n";
 descr += "\n";
 descr += "Use -d (--dither) to give the dither weight [default=0.1].\n";
 descr += "Set this to 0 to turn off dithering.\n";
@@ -66,6 +67,9 @@ descr += "Use -c (--C) to set the number of cepstral coefficients [default=13].\
 descr += "This is the final dim of the output feature vecs, and must be >= B.\n";
 descr += "\n";
 descr += "Use -q (--Q) to set the lifter coefficient [default=22.0].\n";
+descr += "\n";
+descr += "Include -x (--use_energy) to output the raw_energy [default=false].\n";
+descr += "In either case, the feature dim is C.\n";
 descr += "\n";
 descr += "Include -m (--zero_mean) to subtract the means from Y [default=false].\n";
 descr += "This is takes C means and subtracts just before output [not usually recommended].\n";
@@ -92,6 +96,7 @@ struct arg_dbl  *a_hif = arg_dbln("u","hif","<dbl>",0,1,"hi (right) freq in Hz [
 struct arg_int    *a_b = arg_intn("b","B","<uint>",0,1,"number of mel bins [default=23]");
 struct arg_int    *a_c = arg_intn("c","C","<uint>",0,1,"number of cepstral coeffs [default=13]");
 struct arg_dbl    *a_q = arg_dbln("q","Q","<dbl>",0,1,"lifter coeff [default=22.0]");
+struct arg_lit   *a_ue = arg_litn("x","use_energy",0,1,"include to use raw energy as first feat [default=false]");
 struct arg_lit  *a_mn0 = arg_litn("m","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
 struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
 
@@ -160,6 +165,9 @@ if (C>B) { cerr << progstr+": " << __LINE__ << errstr << "C (num ceps) must be <
 Q = (a_q->count>0) ? a_q->dval[0] : 22.0;
 if (Q<0.0) { cerr << progstr+": " << __LINE__ << errstr << "Q must be nonnegative" << endl; return 1; }
 
+//Get usee
+usee = (a_ue->count>0);
+
 //Get mn0
 mn0 = (a_mn0->count>0);
 
@@ -188,7 +196,7 @@ if (o1.T==1u)
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
     try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-    if (codee::kaldi_mfcc_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),float(lof),float(hif),B,C,Q,mn0))
+    if (codee::kaldi_mfcc_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),float(lof),float(hif),B,C,Q,usee,mn0))
     { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
     if (wo1)
     {

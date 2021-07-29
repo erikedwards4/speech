@@ -156,7 +156,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
                 for (int s=ss; s<ss+(int)L; ++s, ++Xw)
                 {
                     n = s; //This ensures extrapolation by signal reversal to any length
-                    while (n<0 || n>=(int)N) { n = (n<0) ? -n : (n<(int)N) ? n : 2*(int)N-2-n; }
+                    while (n<0 || n>=(int)N) { n = (n<0) ? -n-1 : (n<(int)N) ? n : 2*(int)N-1-n; }
                     X += n - prev_n; prev_n = n;
                     *Xw = *X;
                 }
@@ -391,7 +391,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
                 for (int s=ss; s<ss+(int)L; ++s, ++Xw)
                 {
                     n = s; //This ensures extrapolation by signal reversal to any length
-                    while (n<0 || n>=(int)N) { n = (n<0) ? -n : (n<(int)N) ? n : 2*(int)N-2-n; }
+                    while (n<0 || n>=(int)N) { n = (n<0) ? -n-1 : (n<(int)N) ? n : 2*(int)N-1-n; }
                     X += n - prev_n; prev_n = n;
                     *Xw = *X;
                 }

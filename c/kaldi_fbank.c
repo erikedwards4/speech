@@ -31,7 +31,7 @@
 //B:            size_t  num mel bins (typical default is 23)
 //lg:           bool    take log after getting mel-bank power
 //use_energy:   bool    use raw_energy, i.e. output it as an extra feature (feat dim becomes B+1)
-//mn0:          bool    to subtract means of B feats in Y before output (not usually recommended)
+//mn0:          bool    to subtract means of feats in Y before output (not usually recommended)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -152,6 +152,10 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float sr, const flo
     if (!plan) { fprintf(stderr,"error in kaldi_fbank_s: problem creating fftw plan"); return 1; }
     for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
 
+    //Initialize Yf (initial output with power at F STFT freqs)
+    float *Yf;
+    if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
     const float finc = sr/(float)nfft;                          //freq increment in Hz for FFT freqs
@@ -177,10 +181,6 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float sr, const flo
     }
 	F2B -= BF;
 
-    //Initialize Yf (initial output with power at F STFT freqs)
-    float *Yf;
-    if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
-
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
     {
@@ -197,7 +197,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float sr, const flo
                 for (int s=ss; s<ss+(int)L; ++s, ++Xw)
                 {
                     n = s; //This ensures extrapolation by signal reversal to any length
-                    while (n<0 || n>=(int)N) { n = (n<0) ? -n : (n<(int)N) ? n : 2*(int)N-2-n; }
+                    while (n<0 || n>=(int)N) { n = (n<0) ? -n-1 : (n<(int)N) ? n : 2*(int)N-1-n; }
                     X += n - prev_n; prev_n = n;
                     *Xw = *X;
                 }
@@ -329,7 +329,7 @@ int kaldi_fbank_s (float *Y, float *X, const size_t N, const float sr, const flo
     }
     
     //Free
-    free(win); free(mels); free(F2B); free(Yf);
+    free(win); free(Yf); free(mels); free(F2B);
     fftwf_destroy_plan(plan); fftwf_free(Xw); fftwf_free(Yw);
 
     return 0;
@@ -435,6 +435,10 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double sr, const 
     if (!plan) { fprintf(stderr,"error in kaldi_fbank_d: problem creating fftw plan"); return 1; }
     for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
 
+    //Initialize Yf (initial output with power at F STFT freqs)
+    double *Yf;
+    if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
     const double finc = sr/(double)nfft;                    //freq increment in Hz for FFT freqs
@@ -460,10 +464,6 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double sr, const 
     }
 	F2B -= BF;
 
-    //Initialize Yf (initial output with power at F STFT freqs)
-    double *Yf;
-    if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
-
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
     {
@@ -480,7 +480,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double sr, const 
                 for (int s=ss; s<ss+(int)L; ++s, ++Xw)
                 {
                     n = s; //This ensures extrapolation by signal reversal to any length
-                    while (n<0 || n>=(int)N) { n = (n<0) ? -n : (n<(int)N) ? n : 2*(int)N-2-n; }
+                    while (n<0 || n>=(int)N) { n = (n<0) ? -n-1 : (n<(int)N) ? n : 2*(int)N-1-n; }
                     X += n - prev_n; prev_n = n;
                     *Xw = *X;
                 }
@@ -612,7 +612,7 @@ int kaldi_fbank_d (double *Y, double *X, const size_t N, const double sr, const 
     }
     
     //Free
-    free(win); free(mels); free(F2B); free(Yf);
+    free(win); free(Yf); free(mels); free(F2B);
     fftw_destroy_plan(plan); fftw_free(Xw); fftw_free(Yw);
 
     return 0;

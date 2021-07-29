@@ -37,7 +37,7 @@ int main(int argc, char *argv[])
     ioinfo i1, o1;
     size_t W, L, stp, B, C;
     double d, p, sr, fl, shft, lof, hif, Q;
-    int snipe, dc0, rawe, mn0;
+    int snipe, dc0, rawe, usee, mn0;
     string wintype;
 
 
@@ -98,6 +98,9 @@ int main(int argc, char *argv[])
     descr += "\n";
     descr += "Use -q (--Q) to set the lifter coefficient [default=22.0].\n";
     descr += "\n";
+    descr += "Include -x (--use_energy) to output the raw_energy [default=false].\n";
+    descr += "In either case, the feature dim is C.\n";
+    descr += "\n";
     descr += "Include -m (--zero_mean) to subtract the means from Y [default=false].\n";
     descr += "This is takes C means and subtracts just before output [not usually recommended].\n";
     descr += "\n";
@@ -125,11 +128,12 @@ int main(int argc, char *argv[])
     struct arg_int    *a_b = arg_intn("b","B","<uint>",0,1,"number of mel bins [default=23]");
     struct arg_int    *a_c = arg_intn("c","C","<uint>",0,1,"number of cepstral coeffs [default=13]");
     struct arg_dbl    *a_q = arg_dbln("q","Q","<dbl>",0,1,"lifter coeff [default=22.0]");
+    struct arg_lit   *a_ue = arg_litn("x","use_energy",0,1,"include to use raw energy as first feat [default=false]");
     struct arg_lit  *a_mn0 = arg_litn("m","zero_mean",0,1,"include to zero the means of each feat in Y [default=false]");
     struct arg_file  *a_fo = arg_filen("o","ofile","<file>",0,O,"output file (Y)");
     struct arg_lit *a_help = arg_litn("h","help",0,1,"display this help and exit");
     struct arg_end  *a_end = arg_end(5);
-    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_d, a_dc0, a_re, a_p, a_wt, a_lof, a_hif, a_b, a_c, a_q, a_mn0, a_fo, a_help, a_end};
+    void *argtable[] = {a_fi, a_sr, a_fl, a_stp, a_sne, a_d, a_dc0, a_re, a_p, a_wt, a_lof, a_hif, a_b, a_c, a_q, a_ue, a_mn0, a_fo, a_help, a_end};
     if (arg_nullcheck(argtable)!=0) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating argtable" << endl; return 1; }
     nerrs = arg_parse(argc, argv, argtable);
     if (a_help->count>0)
@@ -232,6 +236,9 @@ int main(int argc, char *argv[])
     Q = (a_q->count>0) ? a_q->dval[0] : 22.0;
     if (Q<0.0) { cerr << progstr+": " << __LINE__ << errstr << "Q must be nonnegative" << endl; return 1; }
 
+    //Get usee
+    usee = (a_ue->count>0);
+
     //Get mn0
     mn0 = (a_mn0->count>0);
 
@@ -276,7 +283,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_mfcc_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),float(lof),float(hif),B,C,Q,mn0))
+        if (codee::kaldi_mfcc_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),float(lof),float(hif),B,C,Q,usee,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {
@@ -294,7 +301,7 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_mfcc_d(Y,X,i1.N(),double(sr),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),double(lof),double(hif),B,C,Q,mn0))
+        if (codee::kaldi_mfcc_d(Y,X,i1.N(),double(sr),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),double(lof),double(hif),B,C,Q,usee,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         if (wo1)
         {

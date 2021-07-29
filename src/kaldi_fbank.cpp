@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
     descr += "Include -g (--log) to output log amplitude or power [default=false].\n";
     descr += "This takes the log of each element of Y (with floor of FLT_EPS) before output.\n";
     descr += "\n";
-    descr += "Include -u (--use_energy) to output the raw_energy [default=false].\n";
+    descr += "Include -x (--use_energy) to output raw_energy as an extra feat [default=false].\n";
     descr += "If true, then the feature dim is B+1.\n";
     descr += "If false, then the feature dim is B (no raw_energy is used).\n";
     descr += "\n";

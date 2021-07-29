@@ -27,6 +27,7 @@
 //B:            size_t  num mel bins (typical default is 23)
 //C:            size_t  num cepstral coeffs (typical default is 13)
 //Q:            float   lifter coefficient Q (typical default is 22.0)
+//use_energy:   bool    use raw_energy for first feature (feat dim remains C)
 //mn0:          bool    to subtract means of C feats in Y before output (not usually recommended)
 
 #include <stdio.h>
@@ -47,11 +48,11 @@ namespace codee {
 extern "C" {
 #endif
 
-int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const float lof, const float hif, const size_t B, const size_t C, const float Q, const int mn0);
-int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const double lof, const double hif, const size_t B, const size_t C, const double Q, const int mn0);
+int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const float lof, const float hif, const size_t B, const size_t C, const float Q, const int use_energy, const int mn0);
+int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const double lof, const double hif, const size_t B, const size_t C, const double Q, const int use_energy, const int mn0);
 
 
-int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const float lof, const float hif, const size_t B, const size_t C, const float Q, const int mn0)
+int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const float lof, const float hif, const size_t B, const size_t C, const float Q, const int use_energy, const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_mfcc_s: N (nsamps in signal) must be positive\n"); return 1; }
     if (sr<FLT_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_s: sr must be positive\n"); return 1; }
@@ -151,6 +152,10 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
     if (!fft_plan) { fprintf(stderr,"error in kaldi_mfcc_s: problem creating fftw plan"); return 1; }
     for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
 
+    //Initialize Yf (initial output with power at F STFT freqs)
+    float *Yf;
+    if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
+
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
     const float finc = sr/(float)nfft;                          //freq increment in Hz for FFT freqs
@@ -176,10 +181,6 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
     }
 	F2B -= BF;
 
-    //Initialize Yf (initial output with power at F STFT freqs)
-    float *Yf;
-    if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
-
     //Initialize DCT
     //Kaldi uses a dct_matrix, that is B x B, and then resized to nceps x B.
     float *Xd, *Yd;
@@ -199,7 +200,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
     }
     else { for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0f; } }
     for (size_t c=1u; c<C; ++c) { *--lift *= sc; }
-    *--lift *= 0.5f/sqrtf((float)B);
+    *--lift *= 0.5f/sqrtf((float)B);      //proper DC scaling
 
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
@@ -217,7 +218,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
                 for (int s=ss; s<ss+(int)L; ++s, ++Xw)
                 {
                     n = s; //This ensures extrapolation by signal reversal to any length
-                    while (n<0 || n>=(int)N) { n = (n<0) ? -n : (n<(int)N) ? n : 2*(int)N-2-n; }
+                    while (n<0 || n>=(int)N) { n = (n<0) ? -n-1 : (n<(int)N) ? n : 2*(int)N-1-n; }
                     X += n - prev_n; prev_n = n;
                     *Xw = *X;
                 }
@@ -263,7 +264,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
         }
 
         //Raw energy
-        if (raw_energy)
+        if (use_energy && raw_energy)
         {
             Xw -= L; rawe = 0.0f;
             for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
@@ -282,21 +283,22 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
         //Window
         for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
         
+        //Raw energy
+        if (use_energy && !raw_energy)
+        {
+            rawe = 0.0f;
+            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+            Xw -= L;
+        }
+
         //FFT
         fftwf_execute(fft_plan);
         
         //Power (from fftw half-complex format); also applies a floor
-        *Yf = (raw_energy) ? rawe : *Yw**Yw;
-        if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
-        ++Yf; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
-        if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
+        for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf)
-        {
-            *Yf += *Yw * *Yw;
-            if (*Yf<FLT_EPSILON) { *Yf = FLT_EPSILON; }
-        }
+        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
         //Transform to mel-bank output
@@ -318,8 +320,11 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
         fftwf_execute(dct_plan);
 
         //Lifter
-        for (size_t c=0u; c<C; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
-        lift -= C; Yd -= C;
+        *Y = (use_energy) ? logf(rawe) : *lift * *Yd;
+        ++lift; ++Yd; ++Y;
+        for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
+        *Y = *(Y-1); ++Y;       //this reproduces a bug in Kaldi (last 2 CCs are equal)
+        lift -= C-1u; Yd -= C-1u;
     }
 
     //Subtract means from Y
@@ -341,7 +346,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
     }
     
     //Free
-    free(win); free(mels); free(F2B); free(Yf); free(lift);
+    free(win); free(Yf); free(mels); free(F2B); free(lift);
     fftwf_destroy_plan(fft_plan); fftwf_free(Xw); fftwf_free(Yw);
     fftwf_destroy_plan(dct_plan); fftwf_free(Xd); fftwf_free(Yd);
 
@@ -349,7 +354,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
 }
 
 
-int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const double lof, const double hif, const size_t B, const size_t C, const double Q, const int mn0)
+int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const double lof, const double hif, const size_t B, const size_t C, const double Q, const int use_energy, const int mn0)
 {
     if (N<1u) { fprintf(stderr,"error in kaldi_mfcc_d: N (nsamps in signal) must be positive\n"); return 1; }
     if (sr<DBL_EPSILON) { fprintf(stderr,"error in kaldi_mfcc_d: sr must be positive\n"); return 1; }
@@ -450,6 +455,10 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
     if (!fft_plan) { fprintf(stderr,"error in kaldi_mfcc_d: problem creating fftw plan"); return 1; }
     for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
 
+    //Initialize Yf (initial output with power at F STFT freqs)
+    double *Yf;
+    if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
+
     //Initialize Hz-to-mel transfrom matrix (F2B)
     const size_t BF = B*F;
     const double finc = sr/(double)nfft;                    //freq increment in Hz for FFT freqs
@@ -475,10 +484,6 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
     }
 	F2B -= BF;
 
-    //Initialize Yf (initial output with power at F STFT freqs)
-    double *Yf;
-    if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
-
     //Initialize DCT
     //Kaldi uses a dct_matrix, that is B x B, and then resized to nceps x B.
     double *Xd, *Yd;
@@ -498,7 +503,7 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
     }
     else { for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0; } }
     for (size_t c=1u; c<C; ++c) { *--lift *= sc; }
-    *--lift *= 0.5/sqrt((double)B);
+    *--lift *= 0.5/sqrt((double)B);      //proper DC scaling
 
     //Process each of W frames
     for (size_t w=0u; w<W; ++w)
@@ -516,7 +521,7 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
                 for (int s=ss; s<ss+(int)L; ++s, ++Xw)
                 {
                     n = s; //This ensures extrapolation by signal reversal to any length
-                    while (n<0 || n>=(int)N) { n = (n<0) ? -n : (n<(int)N) ? n : 2*(int)N-2-n; }
+                    while (n<0 || n>=(int)N) { n = (n<0) ? -n-1 : (n<(int)N) ? n : 2*(int)N-1-n; }
                     X += n - prev_n; prev_n = n;
                     *Xw = *X;
                 }
@@ -553,7 +558,7 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
         }
 
         //Raw energy
-        if (raw_energy)
+        if (use_energy && raw_energy)
         {
             Xw -= L; rawe = 0.0;
             for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
@@ -581,38 +586,48 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
         //Window
         for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
         
+        //Raw energy
+        if (use_energy && !raw_energy)
+        {
+            rawe = 0.0;
+            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            if (rawe<rawe_floor) { rawe = rawe_floor; }
+            Xw -= L;
+        }
+
         //FFT
         fftw_execute(fft_plan);
         
         //Power (from fftw half-complex format)
-        *Yf = (raw_energy) ? rawe : *Yw**Yw;
-        ++Yf; ++Yw;
-        for (size_t f=1u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
+        for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
         //Transform to mel-bank output
         lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
-        for (size_t b=0u; b<B; ++b, ++Y)
+        for (size_t b=0u; b<B; ++b, ++Xd)
         {
-            size_t f = 0u; double sm = 0.0;
-            while (*mels<lmel) { ++mels; ++f; }
+            size_t f = 0u; double sm = 0.0f;
+            while (*mels<lmel && f<F) { ++mels; ++f; }
             Yf += f; F2B += f;
-            while (*mels<rmel) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
-            *Y = (sm<FLT_EPS) ? log(FLT_EPS) : log(sm);
+            while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
+            *Xd = (sm<FLT_EPS) ? log(FLT_EPS) : log(sm);
             mels -= f; Yf -= f; F2B += F-f;
             lmel = cmel; cmel = rmel;
             rmel = (b+2u==B) ? himel : rmel + dmel;
         }
-        F2B -= BF;
+        F2B -= BF; Xd -= B;
 
         //DCT
         fftw_execute(dct_plan);
 
         //Lifter
-        for (size_t c=0u; c<C; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
-        lift -= C; Yd -= C;
+        *Y = (use_energy) ? log(rawe) : *lift * *Yd;
+        ++lift; ++Yd; ++Y;
+        for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
+        *Y = *(Y-1); ++Y;       //this reproduces a bug in Kaldi (last 2 CCs are equal)
+        lift -= C-1u; Yd -= C-1u;
     }
 
     //Subtract means from Y
@@ -634,7 +649,7 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
     }
     
     //Free
-    free(win); free(mels); free(F2B); free(Yf); free(lift);
+    free(win); free(Yf); free(mels); free(F2B); free(lift);
     fftw_destroy_plan(fft_plan); fftw_free(Xw); fftw_free(Yw);
     fftw_destroy_plan(dct_plan); fftw_free(Xd); fftw_free(Yd);
 
