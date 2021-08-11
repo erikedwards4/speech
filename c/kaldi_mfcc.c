@@ -295,7 +295,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
         //FFT
         fftwf_execute(fft_plan);
         
-        //Power (from fftw half-complex format); also applies a floor
+        //Power (from fftw half-complex format)
         for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
@@ -323,8 +323,10 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
         *Y = (use_energy) ? logf(rawe) : *lift * *Yd;
         ++lift; ++Yd; ++Y;
         for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
-        *Y = *(Y-1); ++Y;       //this reproduces a bug in Kaldi (last 2 CCs are equal)
-        lift -= C-1u; Yd -= C-1u;
+        lift -= C-1u; Yd -= C-1u; ++Y;
+
+        //This reproduces a bug in Kaldi (last 2 bins are equal)
+        *(Y-1) = *(Y-2);
     }
 
     //Subtract means from Y
@@ -626,8 +628,10 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
         *Y = (use_energy) ? log(rawe) : *lift * *Yd;
         ++lift; ++Yd; ++Y;
         for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
-        *Y = *(Y-1); ++Y;       //this reproduces a bug in Kaldi (last 2 CCs are equal)
-        lift -= C-1u; Yd -= C-1u;
+        lift -= C-1u; Yd -= C-1u; ++Y;
+
+        //This reproduces a bug in Kaldi (last 2 bins are equal)
+        *(Y-1) = *(Y-2);
     }
 
     //Subtract means from Y

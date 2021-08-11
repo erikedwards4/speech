@@ -203,6 +203,13 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     if (!ifft_plan) { fprintf(stderr,"error in kaldi_plp_s: problem creating fftw plan"); return 1; }
     for (size_t b=0u; b<2u*(B+2u); ++b) { Xi[b] = 0.0f; }
 
+    //Initialize Levinson-Durbin recursion
+    const size_t P = B - 1u;
+    const float athresh = (float)sqrt(1.0-1e-5);
+    float *A1, *A2, a, e;
+    if (!(A1=(float *)malloc(P*sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!(A2=(float *)malloc((P-1u)*sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with malloc. "); perror("malloc"); return 1; }
+
     //Initialize lifter (include IFFT scaling and cepstral_scale)
     const float sc = cep_scale/sqrtf((float)(2u*B));
     float *lift;
@@ -308,7 +315,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         //FFT
         fftwf_execute(fft_plan);
         
-        //Power (from fftw half-complex format); also applies a floor
+        //Power (from fftw half-complex format)
         for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
         for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
@@ -330,7 +337,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         }
         F2B -= BF;
 
-        //Equal loudness, apply pow and duplicate 1st/last elements
+        //Equal loudness, apply pow, and duplicate 1st/last elements
         eql += B - 1u;
         if (compress==1.0f)
         {
@@ -354,16 +361,51 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         //IFFT
         fftwf_execute(ifft_plan);
 
-        //LPC-to-cepstrum
+        //AC-to-cepstrum
         //Also gets residual_log_energy to use as 1st feat
         //Durbin(O, autocorr_in.Data(), lpc_out->Data(), tmp.Data()); (in mel-computations.cc)
 
+        //Levinson-Durbin (get poly from AC)
+        //Since Yi is complex-valued, but AC is real-valued, use Yi+2 and Yi-=2 (?)
+        a = -*(Yi+2) / *Yi;
+        *A1 = a;
+        e = *Yi; Yi += 2;
+        e += a * *Yi; Yi += 2;
+        for (size_t p=1u; p<P; ++p, Yi+=2u*p)
+        {
+            a = *Yi;
+            for (size_t q=0u; q<p; ++q, ++A1) { Yi-=2; a += *Yi * *A1; }
+            a /= -e;
+            *A1 = a;
+            for (size_t q=0u; q<p; ++q, ++A2) { --A1; *A2 = *A1; }
+            A1 += p;
+            for (size_t q=0u; q<p; ++q) { --A2; --A1; *A1 += a * *A2; }
+            if (a>athresh) { e *= 0.00001f; }
+            else { e *= 1.0f - a*a; }
+        }
+        Yi -= 2u*B;
+
+        //Get CCs from poly
+        *Yd = logf(e+preg);
+        for (size_t k=1u; k<Ly; A1-=k, ++k)
+        {
+            float sm = 0.0f; ++A1;
+            for (size_t j=1u; j<k; ++j, ++A1, --Yd)
+            {
+                sm -= (float)(k-j) * *A1 * *Y;
+            }
+            Yd += k;
+            *Yd = sm/(float)k - *A1;
+        }
+
         //Lifter (includes cepstral_scale)
-        *Y = (use_energy) ? logf(rawe) : *lift * *Yi;
+        *Y = (use_energy) ? logf(rawe) : *lift * *Yd;
         ++lift; ++Yd; ++Y;
         for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
-        *Y = *(Y-1); ++Y;       //this reproduces a bug in Kaldi (last 2 CCs are equal)
-        lift -= C-1u; Yd -= C-1u;
+        lift -= C-1u; Yd -= C-1u; ++Y;
+
+        //This reproduces a bug in Kaldi (last 2 bins are equal)
+        *(Y-1) = *(Y-2);
     }
 
     //Subtract means from Y
@@ -385,7 +427,8 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     }
     
     //Free
-    free(win); free(Yf); free(mels); free(F2B); free(eql); free(lift);
+    free(win); free(Yf); free(mels); free(F2B);
+    free(eql); free(A1); free(A2); free(lift);
     fftwf_destroy_plan(fft_plan); fftwf_free(Xw); fftwf_free(Yw);
     fftwf_destroy_plan(ifft_plan); fftwf_free(Xi); fftwf_free(Yi);
 
@@ -665,8 +708,10 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         *Y = (use_energy) ? log(rawe) : *lift * *Yd;
         ++lift; ++Yd; ++Y;
         for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
-        *Y = *(Y-1); ++Y;       //this reproduces a bug in Kaldi (last 2 CCs are equal)
-        lift -= C-1u; Yd -= C-1u;
+        lift -= C-1u; Yd -= C-1u; ++Y;
+
+        //This reproduces a bug in Kaldi (last 2 CCs are equal)
+        *(Y-1) = *(Y-2);
     }
 
     //Subtract means from Y
