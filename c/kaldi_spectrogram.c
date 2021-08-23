@@ -138,15 +138,16 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
     Yw = (float *)fftwf_malloc(nfft*sizeof(float));
     fftwf_plan plan = fftwf_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
     if (!plan) { fprintf(stderr,"error in kaldi_spectrogram_s: problem creating fftw plan"); return 1; }
-    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
+    for (size_t nf=nfft; nf>0u; --nf, ++Xw) { *Xw = 0.0f; }
+    Xw -= nfft;
 
     //Process each of W frames
-    for (size_t w=0u; w<W; ++w)
+    for (size_t w=W; w>0u; --w)
     {
         //Copy one frame of X into Xw
         if (snip_edges)
         {
-            for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+            for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
             X -= xd;
         }
         else
@@ -164,7 +165,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
             else
             {
                 X += ss - prev_n;
-                for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+                for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
                 X -= xd; prev_n = ss + (int)stp;
             }
             ss += stp;
@@ -196,16 +197,16 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
         if (dc0)
         {
             float mn = 0.0f;
-            for (size_t l=0u; l<L; ++l) { mn += *--Xw; }
+            for (size_t l=L; l>0u; --l) { mn += *--Xw; }
             mn /= (float)L;
-            for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
+            for (size_t l=L; l>0u; --l, ++Xw) { *Xw -= mn; }
         }
 
         //Raw energy
         if (raw_energy)
         {
             Xw -= L; rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
@@ -214,19 +215,19 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
         else
         {
             --Xw;
-            for (size_t l=0u; l<L-1u; ++l, --Xw) { *Xw -= preemph * *(Xw-1); }
+            for (size_t l=L-1u; l>0u; --l, --Xw) { *Xw -= preemph * *(Xw-1); }
             *Xw -= preemph * *Xw;
         }
         
         //Window
-        for (size_t l=0u; l<L; ++l, ++Xw, ++win) { *Xw *= *win; }
+        for (size_t l=L; l>0u; --l, ++Xw, ++win) { *Xw *= *win; }
         win -= L;
 
         //Raw energy
         if (!raw_energy)
         {
             rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l) { --Xw; rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l) { --Xw; rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
         else { Xw -= L; }
@@ -240,7 +241,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
         //Power (from fftw half-complex format)
         // for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
         // Y -= 2u;
-        // for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
+        // for (size_t f=F-2u; f>0u; --f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         // Yw -= nfft;
 
         //Power (reproduces a bug in Kaldi for Nyquist)
@@ -250,7 +251,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
         Yw -= nfft;
 
         //Apply floor and take log
-        for (size_t f=0u; f<F; ++f, ++Y) { *Y = (*Y<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(*Y); }
+        for (size_t f=F; f>0u; --f, ++Y) { *Y = (*Y<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(*Y); }
         //*(Y-1) = *(Y-2);    //this can also be used to reproduce the bug in Kaldi
     }
 
@@ -259,14 +260,14 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
     {
         float *mns;
         if (!(mns=(float *)calloc(F,sizeof(float)))) { fprintf(stderr,"error in kaldi_spectrogram_s: problem with calloc. "); perror("calloc"); return 1; }
-        for (size_t w=0u; w<W; ++w, mns-=F)
+        for (size_t w=W; w>0u; --w, mns-=F)
         {
-            for (size_t f=0u; f<F; ++f, ++mns) { *mns += *--Y; }
+            for (size_t f=F; F>0u; --f, ++mns) { *mns += *--Y; }
         }
-        for (size_t f=0u; f<F; ++f, ++mns) { *mns /= (float)W; }
-        for (size_t w=0u; w<W; ++w, mns+=F)
+        for (size_t f=F; f>0u; --f, ++mns) { *mns /= (float)W; }
+        for (size_t w=W; w>0u; --w, mns+=F)
         {
-            for (size_t f=0u; f<F; ++f, ++Y) { *Y -= *--mns; }
+            for (size_t f=F; F>0u; --f, ++Y) { *Y -= *--mns; }
         }
         mns -= F; Y -= F*W;
         free(mns);
@@ -373,15 +374,16 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
     Yw = (double *)fftw_malloc(nfft*sizeof(double));
     fftw_plan plan = fftw_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
     if (!plan) { fprintf(stderr,"error in kaldi_spectrogram_d: problem creating fftw plan"); return 1; }
-    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
+    for (size_t nf=nfft; nf>0u; --nf, ++Xw) { *Xw = 0.0; }
+    Xw -= nfft;
 
     //Process each of W frames
-    for (size_t w=0u; w<W; ++w)
+    for (size_t w=W; w>0u; --w)
     {
         //Copy one frame of X into Xw
         if (snip_edges)
         {
-            for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+            for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
             X -= xd;
         }
         else
@@ -399,7 +401,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
             else
             {
                 X += ss - prev_n;
-                for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+                for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
                 X -= xd; prev_n = ss + (int)stp;
             }
             ss += stp;
@@ -431,16 +433,16 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
         if (dc0)
         {
             double mn = 0.0;
-            for (size_t l=0u; l<L; ++l) { mn += *--Xw; }
+            for (size_t l=L; l>0u; --l) { mn += *--Xw; }
             mn /= (double)L;
-            for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
+            for (size_t l=L; l>0u; --l, ++Xw) { *Xw -= mn; }
         }
 
         //Raw energy
         if (raw_energy)
         {
             Xw -= L; rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
@@ -449,19 +451,19 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
         else
         {
             --Xw;
-            for (size_t l=0u; l<L-1u; ++l, --Xw) { *Xw -= preemph * *(Xw-1); }
+            for (size_t l=L-1u; l>0u; --l, --Xw) { *Xw -= preemph * *(Xw-1); }
             *Xw -= preemph * *Xw;
         }
         
         //Window
-        for (size_t l=0u; l<L; ++l, ++Xw, ++win) { *Xw *= *win; }
+        for (size_t l=L; l>0u; --l, ++Xw, ++win) { *Xw *= *win; }
         win -= L;
 
         //Raw energy
         if (!raw_energy)
         {
             rawe = 0.0;
-            for (size_t l=0u; l<L; ++l) { --Xw; rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l) { --Xw; rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
         else { Xw -= L; }
@@ -475,7 +477,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
         //Power (from fftw half-complex format)
         // for (size_t f=1u; f<F; ++f, ++Yw, ++Y) { *Y = *Yw * *Yw; }
         // Y -= 2u;
-        // for (size_t f=1u; f<F-1u; ++f, ++Yw, --Y) { *Y += *Yw * *Yw; }
+        // for (size_t f=F-2u; f>0u; --f, ++Yw, --Y) { *Y += *Yw * *Yw; }
         // Yw -= nfft;
 
         //Power (reproduces a bug in Kaldi for Nyquist)
@@ -485,7 +487,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
         Yw -= nfft;
 
         //Apply floor and take log
-        for (size_t f=0u; f<F; ++f, ++Y) { *Y = (*Y<FLT_EPS) ? log(FLT_EPS) : log(*Y); }
+        for (size_t f=F; f>0u; --f, ++Y) { *Y = (*Y<FLT_EPS) ? log(FLT_EPS) : log(*Y); }
     }
 
     //Subtract means from Y
@@ -493,14 +495,14 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
     {
         double *mns;
         if (!(mns=(double *)calloc(F,sizeof(double)))) { fprintf(stderr,"error in kaldi_spectrogram_d: problem with calloc. "); perror("calloc"); return 1; }
-        for (size_t w=0u; w<W; ++w, mns-=F)
+        for (size_t w=W; w>0u; --w, mns-=F)
         {
-            for (size_t f=0u; f<F; ++f, ++mns) { *mns += *--Y; }
+            for (size_t f=F; F>0u; --f, ++mns) { *mns += *--Y; }
         }
-        for (size_t f=0u; f<F; ++f, ++mns) { *mns /= (double)W; }
-        for (size_t w=0u; w<W; ++w, mns+=F)
+        for (size_t f=F; f>0u; --f, ++mns) { *mns /= (double)W; }
+        for (size_t w=W; w>0u; --w, mns+=F)
         {
-            for (size_t f=0u; f<F; ++f, ++Y) { *Y -= *--mns; }
+            for (size_t f=F; F>0u; --f, ++Y) { *Y -= *--mns; }
         }
         mns -= F; Y -= F*W;
         free(mns);

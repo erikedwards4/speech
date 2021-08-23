@@ -151,7 +151,8 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     Yw = (float *)fftwf_malloc(nfft*sizeof(float));
     fftwf_plan fft_plan = fftwf_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
     if (!fft_plan) { fprintf(stderr,"error in kaldi_plp_s: problem creating fftw plan"); return 1; }
-    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0f; }
+    for (size_t nf=nfft; nf>0u; --nf, ++Xw) { *Xw = 0.0f; }
+    Xw -= nfft;
 
     //Initialize Yf (initial output with power at F STFT freqs)
     float *Yf;
@@ -169,7 +170,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     if (!(F2B=(float *)malloc(BF*sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with malloc. "); perror("malloc"); return 1; }
     for (size_t f=0; f<F; ++f) { mels[f] = 1127.0f * logf(1.0f+(float)f*finc/700.0f); }
     float lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
-    for (size_t b=0u; b<B; ++b)
+    for (size_t b=B; b>0u; --b)
     {
         size_t f = 0u;
         while (*mels<lmel && f<F) { *F2B++ = 0.0f; ++mels; ++f; }
@@ -178,7 +179,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         mels -= f;
         while (f<F) { *F2B++ = 0.0f; ++f; }
         lmel = cmel; cmel = rmel;
-        rmel = (b+2u==B) ? himel : rmel + dmel;
+        rmel = (b==2u) ? himel : rmel + dmel;
     }
 	F2B -= BF;
 
@@ -186,7 +187,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     float *eql;
     if (!(eql=(float *)malloc(B*sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with malloc. "); perror("malloc"); return 1; }
     cmel = lomel + dmel;
-    for (size_t b=0u; b<B; ++b)
+    for (size_t b=0u; b<B; ++b, cmel+=dmel)
     {
         float cf = 700.0f * (expf(cmel/1127.0f)-1.0f);
         float fsq = cf * cf;
@@ -216,19 +217,19 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     if (!(lift=(float *)malloc(C*sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with malloc. "); perror("malloc"); return 1; }
     if (Q>FLT_EPSILON)
     {
-        for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0f + 0.5f*Q*sinf((float)M_PI*(float)c/Q); }
+        for (size_t c=C; c>0u; --c, ++lift) { *lift = 1.0f + 0.5f*Q*sinf((float)M_PI*(float)c/Q); }
     }
-    else { for (size_t c=0u; c<C; ++c, ++lift) { *lift = 1.0f; } }
+    else { for (size_t c=C; c>0u; --c, ++lift) { *lift = 1.0f; } }
     for (size_t c=1u; c<C; ++c) { *--lift *= sc; }
     *--lift *= 0.5f*cep_scale/sqrtf((float)B);    //proper DC scaling and cepstral_scale
 
     //Process each of W frames
-    for (size_t w=0u; w<W; ++w)
+    for (size_t w=W; w>0u; --w)
     {
         //Copy one frame of X into Xw
         if (snip_edges)
         {
-            for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+            for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
             X -= xd;
         }
         else
@@ -246,7 +247,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
             else
             {
                 X += ss - prev_n;
-                for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+                for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
                 X -= xd; prev_n = ss + (int)stp;
             }
             ss += stp;
@@ -278,16 +279,16 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         if (dc0)
         {
             float mn = 0.0f;
-            for (size_t l=0u; l<L; ++l) { mn += *--Xw; }
+            for (size_t l=L; l>0u; --l) { mn += *--Xw; }
             mn /= (float)L;
-            for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
+            for (size_t l=L; l>0u; --l, ++Xw) { *Xw -= mn; }
         }
 
         //Raw energy
         if (use_energy && raw_energy)
         {
             Xw -= L; rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
@@ -296,18 +297,19 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         else
         {
             --Xw;
-            for (size_t l=0u; l<L-1u; ++l, --Xw) { *Xw -= preemph * *(Xw-1); }
+            for (size_t l=L-1u; l>0u; --l, --Xw) { *Xw -= preemph * *(Xw-1); }
             *Xw -= preemph * *Xw;
         }
         
         //Window
-        for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
+        for (size_t l=L; l>0u; --l, ++Xw, ++win) { *Xw *= *win; }
+        Xw -= L; win -= L;
         
         //Raw energy
         if (use_energy && !raw_energy)
         {
             rawe = 0.0f;
-            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
             Xw -= L;
         }
@@ -316,15 +318,15 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         fftwf_execute(fft_plan);
         
         //Power (from fftw half-complex format)
-        for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
+        for (size_t f=F; f>0u; --f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
+        for (size_t f=F-2u; f>0u; --f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
         //Transform to mel-bank output
         ++Xi;
         lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
-        for (size_t b=0u; b<B; ++b, ++Xi)
+        for (size_t b=B; b>0u; --b, ++Xi)
         {
             size_t f = 0u; float sm = 0.0f;
             while (*mels<lmel && f<F) { ++mels; ++f; }
@@ -333,7 +335,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
             *Xi = (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm);
             mels -= f; Yf -= f; F2B += F-f;
             lmel = cmel; cmel = rmel;
-            rmel = (b+2u==B) ? himel : rmel + dmel;
+            rmel = (b==2u) ? himel : rmel + dmel;
         }
         F2B -= BF;
 
@@ -401,7 +403,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
         //Lifter (includes cepstral_scale)
         *Y = (use_energy) ? logf(rawe) : *lift * *Yd;
         ++lift; ++Yd; ++Y;
-        for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
+        for (size_t c=C-2u; c>0u; --c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
         lift -= C-1u; Yd -= C-1u; ++Y;
 
         //This reproduces a bug in Kaldi (last 2 bins are equal)
@@ -413,14 +415,14 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     {
         float *mns;
         if (!(mns=(float *)calloc(B,sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with calloc. "); perror("calloc"); return 1; }
-        for (size_t w=0u; w<W; ++w, mns-=B)
+        for (size_t w=W; w>0u; --w, mns-=B)
         {
-            for (size_t b=0u; b<B; ++b, ++mns) { *mns += *--Y; }
+            for (size_t b=B; b>0u; --b, ++mns) { *mns += *--Y; }
         }
-        for (size_t b=0u; b<B; ++b, ++mns) { *mns /= (float)W; }
-        for (size_t w=0u; w<W; ++w, mns+=B)
+        for (size_t b=B; b>0u; --b, ++mns) { *mns /= (float)W; }
+        for (size_t w=W; w>0u; --w, mns+=B)
         {
-            for (size_t b=0u; b<B; ++b, ++Y) { *Y -= *--mns; }
+            for (size_t b=B; b>0u; --b, ++Y) { *Y -= *--mns; }
         }
         mns -= B; Y -= B*W;
         free(mns);
@@ -535,7 +537,8 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
     Yw = (double *)fftw_malloc(nfft*sizeof(double));
     fftw_plan fft_plan = fftw_plan_r2r_1d((int)nfft,Xw,Yw,FFTW_R2HC,FFTW_ESTIMATE);
     if (!fft_plan) { fprintf(stderr,"error in kaldi_plp_d: problem creating fftw plan"); return 1; }
-    for (size_t nf=0u; nf<nfft; ++nf) { Xw[nf] = 0.0; }
+    for (size_t nf=nfft; nf>0u; --nf, ++Xw) { *Xw = 0.0; }
+    Xw -= nfft;
 
     //Initialize Yf (initial output with power at F STFT freqs)
     double *Yf;
@@ -553,7 +556,7 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
     if (!(F2B=(double *)malloc(BF*sizeof(double)))) { fprintf(stderr,"error in kaldi_plp_d: problem with malloc. "); perror("malloc"); return 1; }
     for (size_t f=0; f<F; ++f) { mels[f] = 1127.0 * log(1.0+(double)f*finc/700.0); }
     double lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
-    for (size_t b=0u; b<B; ++b)
+    for (size_t b=B; b>0u; --b)
     {
         size_t f = 0u;
         while (*mels<lmel && f<F) { *F2B++ = 0.0; ++mels; ++f; }
@@ -562,7 +565,7 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         mels -= f;
         while (f<F) { *F2B++ = 0.0; ++f; }
         lmel = cmel; cmel = rmel;
-        rmel = (b+2u==B) ? himel : rmel + dmel;
+        rmel = (b==2u) ? himel : rmel + dmel;
     }
 	F2B -= BF;
 
@@ -573,7 +576,8 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
     Yd = (double *)fftw_malloc(B*sizeof(double));
     fftw_plan dct_plan = fftw_plan_r2r_1d((int)B,Xd,Yd,FFTW_REDFT10,FFTW_ESTIMATE);
     if (!dct_plan) { fprintf(stderr,"error in kaldi_plp_d: problem creating fftw plan"); return 1; }
-    for (size_t b=0u; b<B; ++b) { Xd[b] = 0.0; }
+    for (size_t b=B; b>0u; --b, ++Xd) { *Xd = 0.0; }
+    Xd -= B;
 
     //Initialize lifter (include DCT scaling)
     const double sc = 1.0/sqrt((double)(2u*B));
@@ -588,12 +592,12 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
     *--lift *= 0.5/sqrt((double)B);      //proper DC scaling
 
     //Process each of W frames
-    for (size_t w=0u; w<W; ++w)
+    for (size_t w=W; w>0u; --w)
     {
         //Copy one frame of X into Xw
         if (snip_edges)
         {
-            for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+            for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
             X -= xd;
         }
         else
@@ -611,7 +615,7 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
             else
             {
                 X += ss - prev_n;
-                for (size_t l=0u; l<L; ++l, ++X, ++Xw) { *Xw = *X; }
+                for (size_t l=L; l>0u; --l, ++X, ++Xw) { *Xw = *X; }
                 X -= xd; prev_n = ss + (int)stp;
             }
             ss += stp;
@@ -643,7 +647,7 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         if (use_energy && raw_energy)
         {
             Xw -= L; rawe = 0.0;
-            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
         }
 
@@ -651,9 +655,9 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         if (dc0)
         {
             double mn = 0.0;
-            for (size_t l=0u; l<L; ++l) { mn += *--Xw; }
+            for (size_t l=L; l>0u; --l) { mn += *--Xw; }
             mn /= (double)L;
-            for (size_t l=0u; l<L; ++l, ++Xw) { *Xw -= mn; }
+            for (size_t l=L; l>0u; --l, ++Xw) { *Xw -= mn; }
         }
 
         //Preemph
@@ -661,18 +665,19 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         else
         {
             --Xw;
-            for (size_t l=0u; l<L-1u; ++l, --Xw) { *Xw -= preemph * *(Xw-1); }
+            for (size_t l=L-1u; l>0u; --l, --Xw) { *Xw -= preemph * *(Xw-1); }
             *Xw -= preemph * *Xw;
         }
         
         //Window
-        for (size_t l=0u; l<L; ++l) { Xw[l] *= win[l]; }
+        for (size_t l=L; l>0u; --l, ++Xw, ++win) { *Xw *= *win; }
+        Xw -= L; win -= L;
         
         //Raw energy
         if (use_energy && !raw_energy)
         {
             rawe = 0.0;
-            for (size_t l=0u; l<L; ++l, ++Xw) { rawe += *Xw * *Xw; }
+            for (size_t l=L; l>0u; --l, ++Xw) { rawe += *Xw * *Xw; }
             if (rawe<rawe_floor) { rawe = rawe_floor; }
             Xw -= L;
         }
@@ -681,9 +686,9 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         fftw_execute(fft_plan);
         
         //Power (from fftw half-complex format)
-        for (size_t f=0u; f<F; ++f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
+        for (size_t f=F; f>0u; --f, ++Yw, ++Yf) { *Yf = *Yw * *Yw; }
         Yf -= 2u;
-        for (size_t f=1u; f<F-1u; ++f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
+        for (size_t f=F-2u; f>0u; --f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
         //Transform to mel-bank output
@@ -697,7 +702,7 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
             *Xd = (sm<FLT_EPS) ? log(FLT_EPS) : log(sm);
             mels -= f; Yf -= f; F2B += F-f;
             lmel = cmel; cmel = rmel;
-            rmel = (b+2u==B) ? himel : rmel + dmel;
+            rmel = (b==2u) ? himel : rmel + dmel;
         }
         F2B -= BF; Xd -= B;
 
@@ -707,7 +712,7 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
         //Lifter
         *Y = (use_energy) ? log(rawe) : *lift * *Yd;
         ++lift; ++Yd; ++Y;
-        for (size_t c=1u; c<C-1u; ++c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
+        for (size_t c=C-2u; c>0u; --c, ++lift, ++Yd, ++Y) { *Y = *lift * *Yd; }
         lift -= C-1u; Yd -= C-1u; ++Y;
 
         //This reproduces a bug in Kaldi (last 2 CCs are equal)
@@ -719,14 +724,14 @@ int kaldi_plp_d (double *Y, double *X, const size_t N, const double sr, const do
     {
         double *mns;
         if (!(mns=(double *)calloc(B,sizeof(double)))) { fprintf(stderr,"error in kaldi_plp_d: problem with calloc. "); perror("calloc"); return 1; }
-        for (size_t w=0u; w<W; ++w, mns-=B)
+        for (size_t w=W; w>0u; --w, mns-=B)
         {
-            for (size_t b=0u; b<B; ++b, ++mns) { *mns += *--Y; }
+            for (size_t b=B; b>0u; --b, ++mns) { *mns += *--Y; }
         }
-        for (size_t b=0u; b<B; ++b, ++mns) { *mns /= (double)W; }
-        for (size_t w=0u; w<W; ++w, mns+=B)
+        for (size_t b=B; b>0u; --b, ++mns) { *mns /= (double)W; }
+        for (size_t w=W; w>0u; --w, mns+=B)
         {
-            for (size_t b=0u; b<B; ++b, ++Y) { *Y -= *--mns; }
+            for (size_t b=B; b>0u; --b, ++Y) { *Y -= *--mns; }
         }
         mns -= B; Y -= B*W;
         free(mns);
