@@ -21,7 +21,7 @@ else
 endif
 
 INCLS=-Ic -I../util
-CFLAGS=$(WFLAG) $(STD) -O2 -ffast-math -march=native $(INCLS)
+CFLAGS=$(WFLAG) $(STD) -O3 -ffast-math -march=native -mfpmath=sse $(INCLS)
 KINCLS=-I../util -I/opt/kaldi/src -I/opt/kaldi/src/bin -I/opt/kaldi/src/base -I/opt/kaldi/src/matrix -I/opt/kaldi/src/util -I/opt/kaldi/src/makefiles -I/opt/kaldi/src/feat -I/opt/kaldi/src/featbin -I/opt/kaldi/src/transform
 KFLAGS=-DKALDI_DOUBLEPRECISION=0
 
