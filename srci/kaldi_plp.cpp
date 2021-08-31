@@ -3,7 +3,7 @@
 #include "kaldi_plp.c"
 
 //Declarations
-const valarray<size_t> oktypes = {1u,2u};
+const valarray<size_t> oktypes = {1u};
 const size_t I = 1u, O = 1u;
 size_t W, L, stp, B, C, ord;
 double d, p, sr, fl, shft, lof, hif, Q, compress;

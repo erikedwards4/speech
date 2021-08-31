@@ -1,8 +1,12 @@
 7
+b2b
 b2t
+t2b
+w2b
 *.a
 *.so
 *.o
+*.wav
 **/c/old/
 **/c/old2/
 **/bin/

@@ -48,9 +48,10 @@ int main(int argc, char *argv[])
     descr += "\n";
     descr += "Each frame of X is windowed (element-wise multiplied) by a window;\n";
     descr += "the FFT is done on each windowed frame; and the real-valued power\n";
-    descr += "is transformed to power in B mel frequency bands.\n";
+    descr += "is transformed to power in B mel frequency bands. Then the C cepstral\n";
+    descr += "coeffs (CCs) are obtained by DCT (discrete cos transform) and lifter.\n";
     descr += "\n";
-    descr += "The output Y has size BxW or WxB, where B is the number of mel bins,\n";
+    descr += "The output Y has size CxW or WxC, where C is the number of mel bins,\n";
     descr += "and W is the number of frames (a.k.a. windows).\n";
     descr += "\n";
     descr += "Use -r (--srate) to give the sample rate [default=16000].\n";
@@ -74,8 +75,8 @@ int main(int argc, char *argv[])
     descr += "\n";
     descr += "The following framing convention is used here:\n";
     descr += "Samples from one frame are contiguous in memory, for row- and col-major.\n";
-    descr += "So, if Y is row-major, then it has size W x F; \n";
-    descr += "but if Y is col-major, then it has size F x W. \n";
+    descr += "So, if Y is row-major, then it has size W x C; \n";
+    descr += "but if Y is col-major, then it has size C x W. \n";
     descr += "\n";
     descr += "Use -d (--dither) to give the dither weight [default=0.1].\n";
     descr += "Set this to 0 to turn off dithering.\n";
