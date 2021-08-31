@@ -3,6 +3,7 @@
 //@license BSD 3-clause
 
 
+#include <ctime>
 #include <iostream>
 #include <fstream>
 #include <unistd.h>
@@ -23,6 +24,7 @@
 int main(int argc, char *argv[])
 {
     using namespace std;
+    timespec tic, toc;
 
 
     //Declarations
@@ -30,7 +32,7 @@ int main(int argc, char *argv[])
     const string errstr = ": \033[1;31merror:\033[0m ";
     const string warstr = ": \033[1;35mwarning:\033[0m ";
     const string progstr(__FILE__,string(__FILE__).find_last_of("/")+1,strlen(__FILE__)-string(__FILE__).find_last_of("/")-5);
-    const valarray<size_t> oktypes = {1u,2u};
+    const valarray<size_t> oktypes = {1u};
     const size_t I = 1u, O = 1u;
     ifstream ifs1; ofstream ofs1;
     int8_t stdi1, stdo1, wo1;
@@ -73,8 +75,8 @@ int main(int argc, char *argv[])
     descr += "\n";
     descr += "The following framing convention is used here:\n";
     descr += "Samples from one frame are contiguous in memory, for row- and col-major.\n";
-    descr += "So, if Y is row-major, then it has size W x F; \n";
-    descr += "but if Y is col-major, then it has size F x W. \n";
+    descr += "So, if Y is row-major, then it has size W x B; \n";
+    descr += "but if Y is col-major, then it has size B x W. \n";
     descr += "\n";
     descr += "Use -d (--dither) to give the dither weight [default=0.1].\n";
     descr += "Set this to 0 to turn off dithering.\n";
@@ -276,6 +278,7 @@ int main(int argc, char *argv[])
 
 
     //Process
+    clock_gettime(CLOCK_REALTIME,&tic);
     if (o1.T==1u)
     {
         float *X, *Y;
@@ -285,26 +288,16 @@ int main(int argc, char *argv[])
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
         try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
         catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_fbank_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),B,lg,usee,mn0))
-        { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
-        if (wo1)
+        if (sr==16000.0 && fl==25.0 && fl==0)
         {
-            try { ofs1.write(reinterpret_cast<char*>(Y),o1.nbytes()); }
-            catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem writing output file (Y)" << endl; return 1; }
+            if (codee::kaldi_fbank_default_s(Y,X,i1.N(),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),lg,usee,mn0))
+            { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
         }
-        delete[] X; delete[] Y;
-    }
-    else if (o1.T==2u)
-    {
-        double *X, *Y;
-        try { X = new double[i1.N()]; }
-        catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for input file (X)" << endl; return 1; }
-        try { Y = new double[o1.N()]; }
-        catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
-        try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
-        catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-        if (codee::kaldi_fbank_d(Y,X,i1.N(),double(sr),double(fl),double(shft),snipe,double(d),dc0,rawe,double(p),wintype.c_str(),amp,double(lof),double(hif),B,lg,usee,mn0))
-        { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
+        else
+        {
+            if (codee::kaldi_fbank_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),B,lg,usee,mn0))
+            { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
+        }
         if (wo1)
         {
             try { ofs1.write(reinterpret_cast<char*>(Y),o1.nbytes()); }
@@ -316,6 +309,8 @@ int main(int argc, char *argv[])
     {
         cerr << progstr+": " << __LINE__ << errstr << "data type not supported" << endl; return 1;
     }
+    clock_gettime(CLOCK_REALTIME,&toc);
+    cerr << "elapsed time = " << double(toc.tv_sec-tic.tv_sec)*1e3 + double(toc.tv_nsec-tic.tv_nsec)/1e6 << " ms" << endl;
     
 
     //Exit

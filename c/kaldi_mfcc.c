@@ -158,29 +158,37 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
     if (!(Yf=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
-    const size_t BF = B*F;
     const float finc = sr/(float)nfft;                          //freq increment in Hz for FFT freqs
     const float lomel = 1127.0f * logf(1.0f+lof/700.0f);        //low-mel cutoff
     const float himel = 1127.0f * logf(1.0f+hif/700.0f);        //high-mel cutoff
     const float dmel = (himel-lomel) / (float)(B+1u);           //controls spacing on mel scale
-    float *mels;                                                //map STFT freqs to mels
+    float lmel, cmel, rmel;                                     //current left, center, right mels
+    float *mels;                                                //maps STFT freqs to mels
     float *F2B;                                                 //transform matrix for STFT power in F freqs to B mel bins
-    if (!(mels=(float *)malloc(F*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
-    if (!(F2B=(float *)malloc(BF*sizeof(float)))) { fprintf(stderr,"error in kaldi_mfcc_s: problem with malloc. "); perror("malloc"); return 1; }
+    size_t *beg_f, *num_f, nf2b = 0u;                           //indices and size of F2B as sparse matrix
+    mels = (float *)malloc(F*sizeof(float));
+    F2B = (float *)malloc(B*(F/2u)*sizeof(float));
+    beg_f = (size_t *)malloc(B*sizeof(size_t));
+    num_f = (size_t *)malloc(B*sizeof(size_t));
+    if (!mels) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!F2B) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!beg_f) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
+    if (!num_f) { fprintf(stderr,"error in kaldi_fbank_s: problem with malloc. "); perror("malloc"); return 1; }
     for (size_t f=0; f<F; ++f) { mels[f] = 1127.0f * logf(1.0f+(float)f*finc/700.0f); }
-    float lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
+    lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
     for (size_t b=B; b>0u; --b)
     {
         size_t f = 0u;
-        while (*mels<lmel && f<F) { *F2B++ = 0.0f; ++mels; ++f; }
+        while (*mels<lmel && f<F) { ++mels; ++f; }
+        *beg_f = f;
         while (*mels<cmel && f<F) { *F2B++ = (*mels-lmel)/dmel; ++mels; ++f; }
         while (*mels<rmel && f<F) { *F2B++ = (rmel-*mels)/dmel; ++mels; ++f; }
+        *num_f = f - *beg_f++; nf2b += *num_f++;
         mels -= f;
-        while (f<F) { *F2B++ = 0.0f; ++f; }
         lmel = cmel; cmel = rmel;
         rmel = (b==2u) ? himel : rmel + dmel;
     }
-	F2B -= BF;
+	F2B -= nf2b; beg_f -= B; num_f -= B;
 
     //Initialize DCT
     //Kaldi uses a dct_matrix, that is B x B, and then resized to nceps x B.
@@ -304,20 +312,16 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
         for (size_t f=F-2u; f>0u; --f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
-        //Transform to mel-bank output
-        lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
-        for (size_t b=B; b>0u; --b, ++Xd)
+        //Transform to mel-bank output (and apply floor if log)
+        for (size_t b=B; b>0u; --b, ++beg_f, ++num_f, ++Xd)
         {
-            size_t f = 0u; float sm = 0.0f;
-            while (*mels<lmel && f<F) { ++mels; ++f; }
-            Yf += f; F2B += f;
-            while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
+            float sm = 0.0f;
+            Yf += *beg_f;
+            for (size_t f=*num_f; f>0u; --f) { sm += *Yf++ * *F2B++; }
             *Xd = (sm<FLT_EPSILON) ? logf(FLT_EPSILON) : logf(sm);
-            mels -= f; Yf -= f; F2B += F-f;
-            lmel = cmel; cmel = rmel;
-            rmel = (b==2u) ? himel : rmel + dmel;
+            Yf -= *beg_f + *num_f;
         }
-        F2B -= BF; Xd -= B;
+        beg_f -= B; num_f -= B; F2B -= nf2b; Xd -= B;
 
         //DCT
         fftwf_execute(dct_plan);
@@ -351,7 +355,7 @@ int kaldi_mfcc_s (float *Y, float *X, const size_t N, const float sr, const floa
     }
     
     //Free
-    free(win); free(Yf); free(mels); free(F2B); free(lift);
+    free(win); free(Yf); free(mels); free(F2B); free(beg_f); free(num_f); free(lift);
     fftwf_destroy_plan(fft_plan); fftwf_free(Xw); fftwf_free(Yw);
     fftwf_destroy_plan(dct_plan); fftwf_free(Xd); fftwf_free(Yd);
 
@@ -466,29 +470,37 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
     if (!(Yf=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
 
     //Initialize Hz-to-mel transfrom matrix (F2B)
-    const size_t BF = B*F;
     const double finc = sr/(double)nfft;                    //freq increment in Hz for FFT freqs
     const double lomel = 1127.0 * log(1.0+lof/700.0);       //low-mel cutoff
     const double himel = 1127.0 * log(1.0+hif/700.0);       //high-mel cutoff
     const double dmel = (himel-lomel) / (double)(B+1u);     //controls spacing on mel scale
-    double *mels;                                           //map STFT freqs to mels
+    double lmel, cmel, rmel;                                //current left, center, right mels
+    double *mels;                                           //maps STFT freqs to mels
     double *F2B;                                            //transform matrix for STFT power in F freqs to B mel bins
-    if (!(mels=(double *)malloc(F*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
-    if (!(F2B=(double *)malloc(BF*sizeof(double)))) { fprintf(stderr,"error in kaldi_mfcc_d: problem with malloc. "); perror("malloc"); return 1; }
+    size_t *beg_f, *num_f, nf2b = 0u;                       //indices and size of F2B as sparse matrix
+    mels = (double *)malloc(F*sizeof(double));
+    F2B = (double *)malloc(B*(F/2u)*sizeof(double));
+    beg_f = (size_t *)malloc(B*sizeof(size_t));
+    num_f = (size_t *)malloc(B*sizeof(size_t));
+    if (!mels) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!F2B) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!beg_f) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
+    if (!num_f) { fprintf(stderr,"error in kaldi_fbank_d: problem with malloc. "); perror("malloc"); return 1; }
     for (size_t f=0; f<F; ++f) { mels[f] = 1127.0 * log(1.0+(double)f*finc/700.0); }
-    double lmel = lomel, cmel = lmel + dmel, rmel = cmel + dmel;
+    lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
     for (size_t b=B; b>0u; --b)
     {
         size_t f = 0u;
-        while (*mels<lmel && f<F) { *F2B++ = 0.0; ++mels; ++f; }
+        while (*mels<lmel && f<F) { ++mels; ++f; }
+        *beg_f = f;
         while (*mels<cmel && f<F) { *F2B++ = (*mels-lmel)/dmel; ++mels; ++f; }
         while (*mels<rmel && f<F) { *F2B++ = (rmel-*mels)/dmel; ++mels; ++f; }
+        *num_f = f - *beg_f++; nf2b += *num_f++;
         mels -= f;
-        while (f<F) { *F2B++ = 0.0; ++f; }
         lmel = cmel; cmel = rmel;
         rmel = (b==2u) ? himel : rmel + dmel;
     }
-	F2B -= BF;
+	F2B -= nf2b; beg_f -= B; num_f -= B;
 
     //Initialize DCT
     //Kaldi uses a dct_matrix, that is B x B, and then resized to nceps x B.
@@ -612,20 +624,16 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
         for (size_t f=F-2u; f>0u; --f, ++Yw, --Yf) { *Yf += *Yw * *Yw; }
         Yw -= nfft;
 
-        //Transform to mel-bank output
-        lmel = lomel; cmel = lmel + dmel; rmel = cmel + dmel;
-        for (size_t b=B; b>0u; --b, ++Xd)
+        //Transform to mel-bank output (and apply floor if log)
+        for (size_t b=B; b>0u; --b, ++beg_f, ++num_f, ++Xd)
         {
-            size_t f = 0u; double sm = 0.0f;
-            while (*mels<lmel && f<F) { ++mels; ++f; }
-            Yf += f; F2B += f;
-            while (*mels<rmel && f<F) { sm += *Yf * *F2B; ++mels; ++f; ++Yf; ++F2B; }
+            double sm = 0.0;
+            Yf += *beg_f;
+            for (size_t f=*num_f; f>0u; --f) { sm += *Yf++ * *F2B++; }
             *Xd = (sm<FLT_EPS) ? log(FLT_EPS) : log(sm);
-            mels -= f; Yf -= f; F2B += F-f;
-            lmel = cmel; cmel = rmel;
-            rmel = (b==2u) ? himel : rmel + dmel;
+            Yf -= *beg_f + *num_f;
         }
-        F2B -= BF; Xd -= B;
+        beg_f -= B; num_f -= B; F2B -= nf2b; Xd -= B;
 
         //DCT
         fftw_execute(dct_plan);
@@ -659,7 +667,7 @@ int kaldi_mfcc_d (double *Y, double *X, const size_t N, const double sr, const d
     }
     
     //Free
-    free(win); free(Yf); free(mels); free(F2B); free(lift);
+    free(win); free(Yf); free(mels); free(F2B); free(beg_f); free(num_f); free(lift);
     fftw_destroy_plan(fft_plan); fftw_free(Xw); fftw_free(Yw);
     fftw_destroy_plan(dct_plan); fftw_free(Xd); fftw_free(Yd);
 

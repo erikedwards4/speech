@@ -9,7 +9,7 @@
 #It is not necessary to run this when making the C++ command-line tools.
 
 SHELL=/bin/bash
-CC=clang++
+CC=gcc
 
 ifeq ($(CC),$(filter $(CC),clang gcc))
 	STD=-std=c11

@@ -39,16 +39,20 @@ kaldi.spectrogram: src/kaldi.spectrogram.cpp
 	$(CC) -c src/$@.cpp -oobj/$@.o $(KINCLS); $(CC) obj/$@.o -obin/$@ -rdynamic -largtable2 -lopenblas -lm -lpthread -ldl
 
 
-#My own re-implementation of Kaldi feats
-Kaldi_compat: kaldi_spectrogram kaldi_fbank kaldi_mfcc #kaldi_plp kaldi_pitch
+#My own re-implementation of Kaldi feats (kaldi2bin should convert .ark files, but not sure if working yet)
+Kaldi_compat: kaldi2bin kaldi_spectrogram kaldi_fbank kaldi_mfcc #kaldi_plp kaldi_pitch
+kaldi2bin: src/kaldi2bin.cpp
+	$(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2
 kaldi_spectrogram: srci/kaldi_spectrogram.cpp c/kaldi_spectrogram.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
 kaldi_fbank: srci/kaldi_fbank.cpp c/kaldi_fbank.c
-	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+	$(ss) -tvd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
 kaldi_mfcc: srci/kaldi_mfcc.cpp c/kaldi_mfcc.c
-	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+	$(ss) -tvd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
 kaldi_plp: srci/kaldi_plp.cpp c/kaldi_plp.c
 	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lfftw3f -lfftw3 -lm
+kaldi_pitch: srci/kaldi_pitch.cpp c/kaldi_pitch.c
+	$(ss) -vd srci/$@.cpp > src/$@.cpp; $(CC) -c src/$@.cpp -oobj/$@.o $(CFLAGS); $(CC) obj/$@.o -obin/$@ -largtable2 -lm
 
 
 F0: #f0_ccs

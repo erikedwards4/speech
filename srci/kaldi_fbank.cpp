@@ -3,7 +3,7 @@
 #include "kaldi_fbank.c"
 
 //Declarations
-const valarray<size_t> oktypes = {1u,2u};
+const valarray<size_t> oktypes = {1u};
 const size_t I = 1u, O = 1u;
 size_t W, L, stp, B;
 double d, p, sr, fl, shft, lof, hif;
@@ -197,8 +197,16 @@ if (o1.T==1u)
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
     try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-    if (codee::kaldi_fbank_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),B,lg,usee,mn0))
-    { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
+    if (sr==16000.0 && fl==25.0 && fl==0)
+    {
+        if (codee::kaldi_fbank_default_s(Y,X,i1.N(),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),lg,usee,mn0))
+        { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
+    }
+    else
+    {
+        if (codee::kaldi_fbank_s(Y,X,i1.N(),float(sr),float(fl),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),B,lg,usee,mn0))
+        { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
+    }
     if (wo1)
     {
         try { ofs1.write(reinterpret_cast<char*>(Y),o1.nbytes()); }
