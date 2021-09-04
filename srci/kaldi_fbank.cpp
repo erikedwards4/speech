@@ -197,7 +197,7 @@ if (o1.T==1u)
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem allocating for output file (Y)" << endl; return 1; }
     try { ifs1.read(reinterpret_cast<char*>(X),i1.nbytes()); }
     catch (...) { cerr << progstr+": " << __LINE__ << errstr << "problem reading input file (X)" << endl; return 1; }
-    if (sr==16000.0 && fl==25.0 && fl==0)
+    if (sr==16000.0 && fl==25.0 && fl==0)  //this wasn't yet successful
     {
         if (codee::kaldi_fbank_default_s(Y,X,i1.N(),float(shft),snipe,float(d),dc0,rawe,float(p),wintype.c_str(),amp,float(lof),float(hif),lg,usee,mn0))
         { cerr << progstr+": " << __LINE__ << errstr << "problem during function call" << endl; return 1; }
