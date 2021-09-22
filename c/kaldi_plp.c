@@ -108,7 +108,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
     //Get win (window vec of length L)
     float *win;
     if (!(win=(float *)malloc(L*sizeof(float)))) { fprintf(stderr,"error in kaldi_plp_s: problem with malloc. "); perror("malloc"); return 1; }
-    if (strncmp(win_type,"rectangular",1u)==0)
+    if (strncmp(win_type,"rectangular",11u)==0)
     {
         for (size_t l=0u; l<L; ++l) { win[l] = 1.0f; }
     }
@@ -490,7 +490,7 @@ int kaldi_plp_s (float *Y, float *X, const size_t N, const float sr, const float
 //     //Get win (window vec of length L)
 //     double *win;
 //     if (!(win=(double *)malloc(L*sizeof(double)))) { fprintf(stderr,"error in kaldi_plp_d: problem with malloc. "); perror("malloc"); return 1; }
-//     if (strncmp(win_type,"rectangular",1u)==0)
+//     if (strncmp(win_type,"rectangular",11u)==0)
 //     {
 //         for (size_t l=0u; l<L; ++l) { win[l] = 1.0; }
 //     }
