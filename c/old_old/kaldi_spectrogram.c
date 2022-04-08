@@ -31,7 +31,7 @@
 #include <float.h>
 #include <math.h>
 #include <fftw3.h>
-#include "codee_speech.h"
+#include <time.h>
 
 #ifndef M_PI
    #define M_PI 3.141592653589793238462643383279502884
@@ -41,6 +41,9 @@
 namespace codee {
 extern "C" {
 #endif
+
+int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0);
+int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, const double frame_length, const double frame_shift, const int snip_edges, const double dither, const int dc0, const int raw_energy, const double preemph, const char win_type[], const int mn0);
 
 
 int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, const float frame_length, const float frame_shift, const int snip_edges, const float dither, const int dc0, const int raw_energy, const float preemph, const char win_type[], const int mn0)
@@ -92,7 +95,7 @@ int kaldi_spectrogram_s (float *Y, float *X, const size_t N, const float sr, con
     //Get win (window vec of length L)
     float *win;
     if (!(win=(float *)malloc(L*sizeof(float)))) { fprintf(stderr,"error in kaldi_spectrogram_s: problem with malloc. "); perror("malloc"); return 1; }
-    if (strncmp(win_type,"rectangular",11u)==0)
+    if (strncmp(win_type,"rectangular",1u)==0)
     {
         for (size_t l=0u; l<L; ++l) { win[l] = 1.0f; }
     }
@@ -328,7 +331,7 @@ int kaldi_spectrogram_d (double *Y, double *X, const size_t N, const double sr, 
     //Get win (window vec of length L)
     double *win;
     if (!(win=(double *)malloc(L*sizeof(double)))) { fprintf(stderr,"error in kaldi_spectrogram_d: problem with malloc. "); perror("malloc"); return 1; }
-    if (strncmp(win_type,"rectangular",11u)==0)
+    if (strncmp(win_type,"rectangular",1u)==0)
     {
         for (size_t l=0u; l<L; ++l) { win[l] = 1.0; }
     }
